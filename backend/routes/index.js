@@ -17,7 +17,7 @@ router.get('/health', (req, res) => {
   res.json({ status: 'ok', message: 'Servidor Backend BaseDatosGrado ejecutándose correctamente.' });
 });
 
-router.use(authRoutes);
+router.use('/auth', authRoutes);
 router.use(catalogsRoutes);
 router.use(usersRoutes);
 router.use(teachersRoutes);
