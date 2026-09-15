@@ -1,4 +1,7 @@
-const API_BASE = '/api';
+// En desarrollo local (npm run dev) usamos '/api' y el proxy de Vite.
+// En producción (Vercel) se debe definir VITE_API_URL con la URL pública
+// del backend en Render, por ejemplo: https://tu-backend.onrender.com/api
+const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 async function request(endpoint, options = {}) {
   const url = `${API_BASE}${endpoint}`;

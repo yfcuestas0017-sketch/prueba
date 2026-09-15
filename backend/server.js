@@ -20,7 +20,18 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-app.use(cors());
+// FRONTEND_URL debe apuntar a la URL de Vercel en producción, p. ej.:
+// https://tu-proyecto.vercel.app
+// Se admite una lista separada por comas si necesitas varios orígenes
+// (por ejemplo, dominio de preview + dominio de producción).
+const allowedOrigins = (process.env.FRONTEND_URL || '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+app.use(cors({
+  origin: allowedOrigins.length > 0 ? allowedOrigins : true,
+}));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
