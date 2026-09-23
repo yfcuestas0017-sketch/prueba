@@ -10,7 +10,6 @@
  */
 
 import { regulationService } from './regulation/regulation_service.js';
-import { enteroSeguro } from '../utils/sqlLiteral.js';
 import { normalizeText } from './regulation/regulation_search.js';
 
 export function classifyChatbookQuery(norm, rawText = '') {
@@ -196,7 +195,7 @@ export async function handleMixedChatbookQuery({
       LEFT JOIN public.modalities m ON m.modality_id = p.modality_id
       LEFT JOIN public.research_lines rl ON rl.research_line_id = p.research_line_id
       LEFT JOIN public.research_sublines rsl ON rsl.research_subline_id = p.research_subline_id
-      WHERE 1=1 ${enteroSeguro(programId) ? `AND (rl.program_id = ${enteroSeguro(programId)} OR rl.program_id IS NULL)` : ''}
+      WHERE 1=1 ${programId ? `AND (rl.program_id = ${programId} OR rl.program_id IS NULL)` : ''}
       ORDER BY p.created_at DESC LIMIT 5
     `);
     userProjects = projRes.rows;

@@ -1,10 +1,5 @@
 import pool from '../config/db.js';
-import { actorId } from '../middlewares/auth.middleware.js';
 import { getUserContext } from '../services/project_bank_helpers.js';
-import { withTransaction } from '../db/withTransaction.js';
-import { HttpError, sendError } from '../utils/httpError.js';
-import { findProjectsWithParticipants } from '../repositories/projects.repository.js';
-import { buildProjectBase } from '../services/projects.mapper.js';
 
 const STUDENT_PROJECT_BLOCK_MESSAGE = 'Este estudiante ya está vinculado a un proyecto de investigación activo y no puede registrar un nuevo proyecto.';
 
@@ -14,44 +9,6 @@ function isStudentProjectRole(roleName) {
 
 function activeProjectPredicate(projectAlias = 'p', statusAlias = 's') {
   return `NOT (LOWER(COALESCE(${statusAlias}.name, '')) IN ('finalizado', 'terminado', 'cancelado'))`;
-}
-
-/**
- * Roles que pueden actuar sobre cualquier proyecto, no solo sobre el suyo.
- */
-const ROLES_ADMINISTRATIVOS = ['administrador general', 'administrador', 'director'];
-
-function esRolAdministrativo(roleName) {
-  const rol = String(roleName || '').toLowerCase();
-  return ROLES_ADMINISTRATIVOS.some((administrativo) => rol.includes(administrativo));
-}
-
-/**
- * Comprueba que quien pide tenga derecho sobre ESTE proyecto.
- *
- * Es el control que faltaba: los endpoints validaban que el identificador fuera
- * un número, pero no que el proyecto fuera de quien lo estaba tocando. Con la
- * identidad ya verificada por el token, aquí se cierra el segundo lado del
- * problema: cualquiera con sesión podía editar o borrar el proyecto de grado de
- * cualquier otra persona con solo cambiar el número de la URL (§6.2).
- */
-async function exigirPermisoSobreProyecto(client, projectId, userId, { soloAdministrativo = false } = {}) {
-  if (!userId) {
-    throw new HttpError(401, 'Debes iniciar sesión para realizar esta acción.');
-  }
-
-  const contexto = await getUserContext(client, userId);
-  if (esRolAdministrativo(contexto?.role_name)) return contexto;
-
-  if (soloAdministrativo) {
-    throw new HttpError(403, 'Solo un administrador o director puede realizar esta acción.');
-  }
-
-  const vinculo = await getProjectMembership(client, projectId, userId);
-  if (!vinculo) {
-    throw new HttpError(403, 'No tienes permisos sobre este proyecto.');
-  }
-  return contexto;
 }
 
 async function getProjectMembership(client, projectId, userId) {
@@ -82,7 +39,7 @@ async function canRegisterResearchRecord(client, projectId, userId, allowedSemes
 
 export const getResearchProgress = async (req, res) => {
   const projectId = Number(req.params.id);
-  const userId = String(actorId(req) || '');
+  const userId = String(req.query.userId || '');
   if (!Number.isInteger(projectId) || !userId) return res.status(400).json({ error: 'Proyecto o usuario inválido.' });
   try {
     const membership = await getProjectMembership(pool, projectId, userId);
@@ -102,41 +59,41 @@ export const getResearchProgress = async (req, res) => {
 
 export const createResearchProgress = async (req, res) => {
   const projectId = Number(req.params.id);
-  const { description } = req.body || {};
-  const userId = actorId(req);
+  const { userId, description } = req.body || {};
   if (!Number.isInteger(projectId) || !userId || !String(description || '').trim()) return res.status(400).json({ error: 'El avance y el usuario son obligatorios.' });
+  const client = await pool.connect();
   try {
-    const progress = await withTransaction(pool, async (client) => {
-      const access = await canRegisterResearchRecord(client, projectId, userId, [9, 10]);
-      if (!access.allowed) throw new HttpError(403, access.error);
-      const result = await client.query(
-        `INSERT INTO public.research_progress (project_id, user_id, description)
-         VALUES ($1, $2, $3) RETURNING progress_id, project_id, description, created_at`,
-        [projectId, String(userId), String(description).trim()],
-      );
+    await client.query('BEGIN');
+    const access = await canRegisterResearchRecord(client, projectId, userId, [9, 10]);
+    if (!access.allowed) { await client.query('ROLLBACK'); return res.status(403).json({ error: access.error }); }
+    const result = await client.query(
+      `INSERT INTO public.research_progress (project_id, user_id, description)
+       VALUES ($1, $2, $3) RETURNING progress_id, project_id, description, created_at`,
+      [projectId, String(userId), String(description).trim()],
+    );
 
-      const histRes = await client.query(
-        `INSERT INTO public.histories (description, change_type, user_id)
-         VALUES ($1, 'AVANCE', $2) RETURNING history_id`,
-        [`Registro de avance de investigación: ${String(description).trim().slice(0, 100)}`, String(userId)],
-      );
-      await client.query(
-        `INSERT INTO public.project_histories (project_id, history_id) VALUES ($1, $2)`,
-        [projectId, histRes.rows[0].history_id],
-      );
+    const histRes = await client.query(
+      `INSERT INTO public.histories (description, change_type, user_id)
+       VALUES ($1, 'AVANCE', $2) RETURNING history_id`,
+      [`Registro de avance de investigación: ${String(description).trim().slice(0, 100)}`, String(userId)],
+    );
+    await client.query(
+      `INSERT INTO public.project_histories (project_id, history_id) VALUES ($1, $2)`,
+      [projectId, histRes.rows[0].history_id],
+    );
 
-      return result.rows[0];
-    });
-
-    return res.status(201).json({ progress });
+    await client.query('COMMIT');
+    return res.status(201).json({ progress: result.rows[0] });
   } catch (err) {
-    return sendError(res, err, 'Create research progress error:', 'No fue posible registrar el avance.');
-  }
+    await client.query('ROLLBACK');
+    console.error('Create research progress error:', err);
+    return res.status(500).json({ error: 'No fue posible registrar el avance.' });
+  } finally { client.release(); }
 };
 
 export const getResearchDocuments = async (req, res) => {
   const projectId = Number(req.params.id);
-  const userId = String(actorId(req) || '');
+  const userId = String(req.query.userId || '');
   if (!Number.isInteger(projectId) || !userId) return res.status(400).json({ error: 'Proyecto o usuario inválido.' });
   try {
     const membership = await getProjectMembership(pool, projectId, userId);
@@ -156,37 +113,37 @@ export const getResearchDocuments = async (req, res) => {
 
 export const createResearchDocument = async (req, res) => {
   const projectId = Number(req.params.id);
-  const { documentType, fileUrl, observations } = req.body || {};
-  const userId = actorId(req);
+  const { userId, documentType, fileUrl, observations } = req.body || {};
   if (!Number.isInteger(projectId) || !userId || !String(documentType || '').trim() || !String(fileUrl || '').trim()) return res.status(400).json({ error: 'El tipo y enlace del documento son obligatorios.' });
+  const client = await pool.connect();
   try {
-    const document = await withTransaction(pool, async (client) => {
-      const access = await canRegisterResearchRecord(client, projectId, userId, [9, 10]);
-      if (!access.allowed) throw new HttpError(403, access.error);
-      const result = await client.query(
-        `INSERT INTO public.research_documents (project_id, user_id, document_type, file_url, observations)
-         VALUES ($1, $2, $3, $4, $5)
-         RETURNING document_id, project_id, document_type, file_url, observations, delivered_at`,
-        [projectId, String(userId), String(documentType).trim(), String(fileUrl).trim(), observations ? String(observations).trim() : null],
-      );
+    await client.query('BEGIN');
+    const access = await canRegisterResearchRecord(client, projectId, userId, [9, 10]);
+    if (!access.allowed) { await client.query('ROLLBACK'); return res.status(403).json({ error: access.error }); }
+    const result = await client.query(
+      `INSERT INTO public.research_documents (project_id, user_id, document_type, file_url, observations)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING document_id, project_id, document_type, file_url, observations, delivered_at`,
+      [projectId, String(userId), String(documentType).trim(), String(fileUrl).trim(), observations ? String(observations).trim() : null],
+    );
 
-      const histRes = await client.query(
-        `INSERT INTO public.histories (description, change_type, user_id)
-         VALUES ($1, 'DOCUMENTO', $2) RETURNING history_id`,
-        [`Entrega de documento de investigación: ${String(documentType).trim()}`, String(userId)],
-      );
-      await client.query(
-        `INSERT INTO public.project_histories (project_id, history_id) VALUES ($1, $2)`,
-        [projectId, histRes.rows[0].history_id],
-      );
+    const histRes = await client.query(
+      `INSERT INTO public.histories (description, change_type, user_id)
+       VALUES ($1, 'DOCUMENTO', $2) RETURNING history_id`,
+      [`Entrega de documento de investigación: ${String(documentType).trim()}`, String(userId)],
+    );
+    await client.query(
+      `INSERT INTO public.project_histories (project_id, history_id) VALUES ($1, $2)`,
+      [projectId, histRes.rows[0].history_id],
+    );
 
-      return result.rows[0];
-    });
-
-    return res.status(201).json({ document });
+    await client.query('COMMIT');
+    return res.status(201).json({ document: result.rows[0] });
   } catch (err) {
-    return sendError(res, err, 'Create research document error:', 'No fue posible registrar el documento.');
-  }
+    await client.query('ROLLBACK');
+    console.error('Create research document error:', err);
+    return res.status(500).json({ error: 'No fue posible registrar el documento.' });
+  } finally { client.release(); }
 };
 
 export const getProjects = async (req, res) => {
@@ -194,15 +151,134 @@ export const getProjects = async (req, res) => {
   const parsedProgramId = programId ? parseInt(programId, 10) : null;
 
   try {
-    const { projectRows, participantsByProject } = await findProjectsWithParticipants(pool);
+    const projectsQuery = `
+      SELECT 
+        p.project_id,
+        p.title,
+        p.code,
+        p.created_at,
+        p.finished_at,
+        p.letter_link,
+        p.status_id,
+        p.modality_id,
+        p.research_line_id,
+        p.research_subline_id,
+        p.degree_option_id,
+        s.name as status_name,
+        m.name as modality_name,
+        rl.name as line_name,
+        rsl.name as subline_name,
+        dopt.name as degree_option_name
+      FROM public.projects p
+      LEFT JOIN public.statuses s ON p.status_id = s.status_id
+      LEFT JOIN public.modalities m ON p.modality_id = m.modality_id
+      LEFT JOIN public.research_lines rl ON p.research_line_id = rl.research_line_id
+      LEFT JOIN public.research_sublines rsl ON p.research_subline_id = rsl.research_subline_id
+      LEFT JOIN public.degree_options dopt ON p.degree_option_id = dopt.degree_option_id
+      ORDER BY p.created_at DESC;
+    `;
+    const projectsRes = await pool.query(projectsQuery);
 
-    let enrichedProjects = projectRows.map((p) => {
-      const participants = participantsByProject[p.project_id] || [];
+    const userProjectsQuery = `
+      SELECT 
+        up.user_project_id,
+        up.project_id,
+        up.user_id,
+        COALESCE(up.project_role, 'autor') as project_role,
+        u.full_name,
+        u.email,
+        u.program_id,
+        pr.name as program_name,
+        f.faculty_id,
+        f.name as faculty_name,
+        st.semester_id,
+        sem.semester_number
+      FROM public.user_projects up
+      JOIN public.users u ON up.user_id = u.user_id
+      LEFT JOIN public.programs pr ON u.program_id = pr.program_id
+      LEFT JOIN public.faculties f ON pr.faculty_id = f.faculty_id
+      LEFT JOIN public.students st ON st.user_id::text = u.user_id::text
+      LEFT JOIN public.semesters sem ON sem.semester_id = st.semester_id;
+    `;
+    const userProjectsRes = await pool.query(userProjectsQuery);
+
+    const userProjectsByProject = {};
+    userProjectsRes.rows.forEach(up => {
+      if (!userProjectsByProject[up.project_id]) {
+        userProjectsByProject[up.project_id] = [];
+      }
+      userProjectsByProject[up.project_id].push({
+        ...up,
+        user_id: String(up.user_id),
+      });
+    });
+
+    let enrichedProjects = projectsRes.rows.map(p => {
+      const participants = userProjectsByProject[p.project_id] || [];
+      const authors = participants.filter(up => up.project_role === 'autor' || up.project_role === 'coautor');
+      const advisors = participants.filter(up => up.project_role === 'asesor');
+      const jurors = participants.filter(up => up.project_role === 'jurado');
+
+      const primaryAuthor = authors[0] || participants[0];
+      const authorSemesterNumber = primaryAuthor?.semester_number || null;
+      const authorSemesterId = primaryAuthor?.semester_id || null;
+      const programName = primaryAuthor?.program_name || null;
+      const facultyName = primaryAuthor?.faculty_name || null;
+      const projectProgramId = primaryAuthor?.program_id || null;
+
+      const createdDate = p.created_at ? new Date(p.created_at) : null;
+      const year = createdDate ? createdDate.getFullYear() : null;
+      const month = createdDate ? createdDate.getMonth() + 1 : null;
+      const academicPeriod = year ? `${year}-${month <= 6 ? '1' : '2'}` : null;
+
       return {
-        ...buildProjectBase(p, participants),
+        id: p.project_id,
+        project_id: p.project_id,
+        title: p.title,
+        code: p.code,
+        created_at: p.created_at,
+        finished_at: p.finished_at,
+        letterLink: p.letter_link,
+        statusId: p.status_id,
+        status: p.status_name,
+        modalityId: p.modality_id,
+        modality: p.modality_name,
+        lineId: p.research_line_id,
+        line: p.line_name,
+        sublineId: p.research_subline_id,
+        subline: p.subline_name,
         degreeOptionId: p.degree_option_id,
         degreeOptionName: p.degree_option_name || null,
+        programId: projectProgramId,
+        programName,
+        facultyName,
+        semesterNumber: authorSemesterNumber,
+        semesterId: authorSemesterId,
+        academicPeriod,
         user_projects: participants,
+        authors: authors.map(a => ({
+          id: String(a.user_id),
+          name: a.full_name,
+          email: a.email,
+          role: a.project_role,
+          program: a.program_name,
+          programId: a.program_id,
+          semesterNumber: a.semester_number,
+        })),
+        advisors: advisors.map(a => ({
+          id: String(a.user_id),
+          name: a.full_name,
+          email: a.email,
+          program: a.program_name,
+          programId: a.program_id,
+        })),
+        jurors: jurors.map(a => ({
+          id: String(a.user_id),
+          name: a.full_name,
+          email: a.email,
+          program: a.program_name,
+          programId: a.program_id,
+        })),
       };
     });
 
@@ -212,7 +288,8 @@ export const getProjects = async (req, res) => {
 
     res.json(enrichedProjects);
   } catch (err) {
-    return sendError(res, err, 'Get projects error:', 'Error al obtener proyectos.');
+    console.error('Get projects error:', err);
+    res.status(500).json({ error: 'Error al obtener proyectos: ' + err.message });
   }
 };
 
@@ -228,8 +305,10 @@ export const createProject = async (req, res) => {
     return res.status(400).json({ error: 'El usuario creador es obligatorio.' });
   }
 
+  const client = await pool.connect();
   try {
-    const newProj = await withTransaction(pool, async (client) => {
+    await client.query('BEGIN');
+
     const creatorRes = await client.query(
       `SELECT u.user_id, COALESCE(r.name, '') AS role_name
        FROM public.users u
@@ -239,7 +318,8 @@ export const createProject = async (req, res) => {
       [String(creatorUserId)],
     );
     if (creatorRes.rows.length === 0) {
-      throw new HttpError(403, 'El usuario creador no está autorizado.');
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'El usuario creador no está autorizado.' });
     }
 
     if (isStudentProjectRole(creatorRes.rows[0].role_name)) {
@@ -262,12 +342,13 @@ export const createProject = async (req, res) => {
       if (candidateProjectsRes.rows.length > 0) {
         const creatorProject = candidateProjectsRes.rows.find((row) => row.user_id === String(creatorUserId));
         const conflictingMember = candidateProjectsRes.rows.find((row) => row.user_id !== String(creatorUserId));
+        await client.query('ROLLBACK');
         if (creatorProject) {
-          throw new HttpError(409, STUDENT_PROJECT_BLOCK_MESSAGE);
+          return res.status(409).json({ error: STUDENT_PROJECT_BLOCK_MESSAGE });
         }
-        const memberNameRes = await client.query('SELECT full_name FROM public.users WHERE user_id::text = $1', [conflictingMember.user_id]);
+        const memberNameRes = await pool.query('SELECT full_name FROM public.users WHERE user_id::text = $1', [conflictingMember.user_id]);
         const memberName = memberNameRes.rows[0]?.full_name || 'El estudiante';
-        throw new HttpError(409, `${memberName} ya está vinculado al proyecto ${conflictingMember.title} y no puede ser agregado a un nuevo proyecto.`);
+        return res.status(409).json({ error: `${memberName} ya está vinculado al proyecto ${conflictingMember.title} y no puede ser agregado a un nuevo proyecto.` });
       }
 
       const semesterRes = await client.query(
@@ -277,7 +358,8 @@ export const createProject = async (req, res) => {
         [String(creatorUserId)],
       );
       if (semesterRes.rows.length === 0 || Number(semesterRes.rows[0].semester_number) !== 8) {
-        throw new HttpError(403, 'Solo estudiantes de 8° semestre sin proyecto pueden registrar una propuesta de investigación.');
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'Solo estudiantes de 8° semestre sin proyecto pueden registrar una propuesta de investigación.' });
       }
     }
 
@@ -298,13 +380,13 @@ export const createProject = async (req, res) => {
       finalDegreeOptionId,
     ]);
 
-    const proyecto = projRes.rows[0];
+    const newProj = projRes.rows[0];
 
     if (creatorUserId) {
       await client.query(
         `INSERT INTO public.user_projects (project_id, user_id, project_role)
          VALUES ($1, $2, 'autor')`,
-        [proyecto.project_id, String(creatorUserId)]
+        [newProj.project_id, String(creatorUserId)]
       );
     }
 
@@ -314,7 +396,7 @@ export const createProject = async (req, res) => {
           await client.query(
             `INSERT INTO public.user_projects (project_id, user_id, project_role)
              VALUES ($1, $2, $3)`,
-            [proyecto.project_id, String(co.id), co.role || 'coautor']
+            [newProj.project_id, String(co.id), co.role || 'coautor']
           );
         }
       }
@@ -329,29 +411,31 @@ export const createProject = async (req, res) => {
 
     await client.query(
       `INSERT INTO public.project_histories (project_id, history_id) VALUES ($1, $2)`,
-      [proyecto.project_id, historyId]
+      [newProj.project_id, historyId]
     );
 
-      return proyecto;
-    });
+    await client.query('COMMIT');
 
     res.status(201).json({ project: newProj });
   } catch (err) {
-    return sendError(res, err, 'Create project error:', 'Error al crear el proyecto.');
+    await client.query('ROLLBACK');
+    console.error('Create project error:', err);
+    res.status(500).json({ error: 'Error al crear el proyecto: ' + err.message });
+  } finally {
+    client.release();
   }
 };
 
 export const updateProject = async (req, res) => {
   const projectId = parseInt(req.params.id, 10);
-  const { title, code, statusId, modalityId, lineId, sublineId, letterLink, degreeOptionId, degree_option_id } = req.body;
-  const actingUserId = actorId(req);
+  const { title, code, statusId, modalityId, lineId, sublineId, letterLink, degreeOptionId, degree_option_id, userId, actorUserId } = req.body;
+  const actingUserId = userId || actorUserId || null;
 
   if (isNaN(projectId)) return res.status(400).json({ error: 'ID de proyecto inválido.' });
 
+  const client = await pool.connect();
   try {
-    const proyectoActualizado = await withTransaction(pool, async (client) => {
-    // Editar un proyecto requiere ser administrativo o formar parte de él.
-    await exigirPermisoSobreProyecto(client, projectId, actingUserId);
+    await client.query('BEGIN');
 
     const currentRes = await client.query(`
       SELECT p.*, s.name as status_name, m.name as modality_name, rl.name as line_name, rsl.name as subline_name, dopt.name as degree_option_name
@@ -365,7 +449,8 @@ export const updateProject = async (req, res) => {
     `, [projectId]);
 
     if (currentRes.rows.length === 0) {
-      throw new HttpError(404, 'Proyecto no encontrado.');
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Proyecto no encontrado.' });
     }
     const oldProj = currentRes.rows[0];
 
@@ -458,19 +543,22 @@ export const updateProject = async (req, res) => {
       await logHistory(`Actualización de opción de grado: ${oldProj.degree_option_name || 'Opción de grado pendiente'} → ${newDegName}`, 'degree_option_id', oldProj.degree_option_name || 'Pendiente', newDegName);
     }
 
-      return updateRes.rows[0];
-    });
+    await client.query('COMMIT');
 
-    res.json({ project: proyectoActualizado });
+    res.json({ project: updateRes.rows[0] });
   } catch (err) {
-    return sendError(res, err, 'Update project error:', 'Error al actualizar proyecto.');
+    await client.query('ROLLBACK');
+    console.error('Update project error:', err);
+    res.status(500).json({ error: 'Error al actualizar proyecto: ' + err.message });
+  } finally {
+    client.release();
   }
 };
 
 export const updateProjectParticipants = async (req, res) => {
   const projectId = parseInt(req.params.id, 10);
-  const { participants } = req.body;
-  const actingUserId = actorId(req);
+  const { participants, userId, actorUserId } = req.body;
+  const actingUserId = userId || actorUserId || null;
 
   if (isNaN(projectId)) return res.status(400).json({ error: 'ID de proyecto inválido.' });
   if (!Array.isArray(participants)) return res.status(400).json({ error: 'La lista de participantes es inválida.' });
@@ -482,45 +570,42 @@ export const updateProjectParticipants = async (req, res) => {
     }
   }
 
+  const client = await pool.connect();
   try {
-    await withTransaction(pool, async (client) => {
-      // Cambiar quién figura como autor, asesor o jurado de un proyecto es una
-      // decisión administrativa, no algo que pueda hacer cualquiera que tenga
-      // sesión abierta.
-      await exigirPermisoSobreProyecto(client, projectId, actingUserId, { soloAdministrativo: true });
+    await client.query('BEGIN');
 
-      const projRes = await client.query('SELECT project_id, title FROM public.projects WHERE project_id = $1', [projectId]);
-      if (projRes.rows.length === 0) {
-        throw new HttpError(404, 'Proyecto no encontrado.');
-      }
+    const projRes = await client.query('SELECT project_id, title FROM public.projects WHERE project_id = $1', [projectId]);
+    if (projRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Proyecto no encontrado.' });
+    }
 
-      await client.query('DELETE FROM public.user_projects WHERE project_id = $1', [projectId]);
+    await client.query('DELETE FROM public.user_projects WHERE project_id = $1', [projectId]);
 
-      const seen = new Set();
-      for (const p of participants) {
-        const key = `${p.id}:${p.role}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        await client.query(
-          `INSERT INTO public.user_projects (project_id, user_id, project_role) VALUES ($1, $2, $3)`,
-          [projectId, String(p.id), p.role]
-        );
-      }
-
-      const historyRes = await client.query(
-        `INSERT INTO public.histories (description, change_type, user_id)
-         VALUES ('Actualización del equipo del proyecto (autores, asesor, jurados)', 'UPDATE', $1) RETURNING history_id`,
-        [actingUserId ? String(actingUserId) : null]
-      );
+    const seen = new Set();
+    for (const p of participants) {
+      const key = `${p.id}:${p.role}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
       await client.query(
-        'INSERT INTO public.project_histories (project_id, history_id) VALUES ($1, $2)',
-        [projectId, historyRes.rows[0].history_id]
+        `INSERT INTO public.user_projects (project_id, user_id, project_role) VALUES ($1, $2, $3)`,
+        [projectId, String(p.id), p.role]
       );
-    });
+    }
 
-    // La lectura del equipo se hace después de confirmar la transacción, igual
-    // que antes: devuelve el estado ya persistido.
-    const teamRes = await pool.query(
+    const historyRes = await client.query(
+      `INSERT INTO public.histories (description, change_type, user_id)
+       VALUES ('Actualización del equipo del proyecto (autores, asesor, jurados)', 'UPDATE', $1) RETURNING history_id`,
+      [actingUserId ? String(actingUserId) : null]
+    );
+    await client.query(
+      'INSERT INTO public.project_histories (project_id, history_id) VALUES ($1, $2)',
+      [projectId, historyRes.rows[0].history_id]
+    );
+
+    await client.query('COMMIT');
+
+    const teamRes = await client.query(
       `SELECT up.user_id, COALESCE(up.project_role, 'autor') as project_role, u.full_name, u.email, u.program_id, pr.name as program_name
        FROM public.user_projects up
        JOIN public.users u ON up.user_id = u.user_id
@@ -536,7 +621,11 @@ export const updateProjectParticipants = async (req, res) => {
       })),
     });
   } catch (err) {
-    return sendError(res, err, 'Update project team error:', 'Error al actualizar el equipo del proyecto.');
+    await client.query('ROLLBACK');
+    console.error('Update project team error:', err);
+    res.status(500).json({ error: 'Error al actualizar el equipo del proyecto: ' + err.message });
+  } finally {
+    client.release();
   }
 };
 
@@ -544,22 +633,21 @@ export const deleteProject = async (req, res) => {
   const projectId = parseInt(req.params.id, 10);
   if (isNaN(projectId)) return res.status(400).json({ error: 'ID de proyecto inválido.' });
 
+  const client = await pool.connect();
   try {
-    await withTransaction(pool, async (client) => {
-      await exigirPermisoSobreProyecto(client, projectId, actorId(req), { soloAdministrativo: true });
-
-      await client.query('DELETE FROM public.project_histories WHERE project_id = $1', [projectId]);
-      await client.query('DELETE FROM public.user_projects WHERE project_id = $1', [projectId]);
-      const borrado = await client.query('DELETE FROM public.projects WHERE project_id = $1 RETURNING project_id', [projectId]);
-      // Antes esto devolvía 200 aunque el proyecto no existiera (acción 1.5 del informe).
-      if (borrado.rows.length === 0) {
-        throw new HttpError(404, 'Proyecto no encontrado.');
-      }
-    });
+    await client.query('BEGIN');
+    await client.query('DELETE FROM public.project_histories WHERE project_id = $1', [projectId]);
+    await client.query('DELETE FROM public.user_projects WHERE project_id = $1', [projectId]);
+    await client.query('DELETE FROM public.projects WHERE project_id = $1', [projectId]);
+    await client.query('COMMIT');
 
     res.json({ success: true, message: 'Proyecto eliminado correctamente.' });
   } catch (err) {
-    return sendError(res, err, 'Delete project error:', 'Error al eliminar proyecto.');
+    await client.query('ROLLBACK');
+    console.error('Delete project error:', err);
+    res.status(500).json({ error: 'Error al eliminar proyecto.' });
+  } finally {
+    client.release();
   }
 };
 
@@ -567,7 +655,7 @@ export const getProjectHistory = async (req, res) => {
   const projectId = parseInt(req.params.id, 10);
   if (isNaN(projectId)) return res.status(400).json({ error: 'ID de proyecto inválido.' });
 
-  const requestingUserId = actorId(req);
+  const requestingUserId = req.query.userId || req.headers['x-user-id'] || null;
 
   try {
     const userCtx = await getUserContext(pool, requestingUserId);

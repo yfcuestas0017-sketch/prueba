@@ -1,11 +1,9 @@
 import pool from '../config/db.js';
 import { getUserContext } from '../services/project_bank_helpers.js';
-import { actorId } from '../middlewares/auth.middleware.js';
-import { sendError } from '../utils/httpError.js';
 
 export const getTeachers = async (req, res) => {
   const { programId } = req.query;
-  const requestingUserId = actorId(req);
+  const requestingUserId = req.query.userId || req.headers['x-user-id'] || null;
 
   try {
     const userCtx = await getUserContext(pool, requestingUserId);
@@ -45,6 +43,7 @@ export const getTeachers = async (req, res) => {
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (err) {
-    return sendError(res, err, 'Get teachers error:', 'Error al consultar docentes.');
+    console.error('Get teachers error:', err);
+    res.status(500).json({ error: 'Error al consultar docentes: ' + err.message });
   }
 };

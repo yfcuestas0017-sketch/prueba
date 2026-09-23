@@ -1,9 +1,5 @@
 
 import { randomUUID } from 'crypto';
-import { withTransaction } from './db/withTransaction.js';
-import { HttpError } from './utils/httpError.js';
-import { hashPassword, isHashed } from './utils/password.js';
-import { actorId } from './middlewares/auth.middleware.js';
 
 export const TABLE_REGISTRY = {
   faculties: {
@@ -160,7 +156,7 @@ export const TABLE_REGISTRY = {
     columns: [
       { name: 'full_name', label: 'Nombre completo', type: 'text', required: true },
       { name: 'email', label: 'Correo electrónico', type: 'text', required: true },
-      { name: 'password', label: 'Contraseña (se guarda cifrada; vacío = no se cambia)', type: 'text' },
+      { name: 'password', label: 'Contraseña (vacío = 123456 por defecto)', type: 'text' },
       { name: 'program_id', label: 'Programa', type: 'select', fk: 'programs' },
       { name: 'is_active', label: 'Activo', type: 'boolean' },
     ],
@@ -201,10 +197,20 @@ const FK_DISPLAY_COLUMN = {
 // del administrador para poder auditar correctamente (histories.user_id
 // referencia a users.user_id, que en esta base es un UUID en texto, no un
 // entero autoincremental).
-// `assertAdminGeneral` vivía aquí y solo distinguía "Administrador General o
-// nadie". La sustituye `resolveAdminAccess`, que además reconoce al
-// Administrador de Programa; se retiró al fusionar para no dejar dos
-// comprobaciones de permisos compitiendo en el mismo archivo.
+async function assertAdminGeneral(client, userId) {
+  if (!userId) return { ok: false, resolvedUserId: null };
+  const result = await client.query(
+    `SELECT u.user_id FROM public.users u
+     LEFT JOIN public.user_roles ur ON ur.user_id = u.user_id
+     LEFT JOIN public.roles r ON r.role_id = ur.role_id
+     WHERE (u.user_id::text = $1 OR LOWER(u.email) = LOWER($1))
+       AND (LOWER(r.name) LIKE '%administrador general%' OR LOWER(r.name) LIKE '%admin general%' OR LOWER(u.email) = 'admgeneral@unicesmag.edu.co')
+     LIMIT 1`,
+    [String(userId)],
+  );
+  if (result.rows.length === 0) return { ok: false, resolvedUserId: null };
+  return { ok: true, resolvedUserId: result.rows[0].user_id ?? null };
+}
 
 // ── Alcance del "Administrador de Programa" ──────────────────────────────
 // El Administrador de Programa es un Docente que además tiene el rol
@@ -322,30 +328,37 @@ function getTableConfig(tableKey) {
 export function registerAdminDbCrudRoutes(app, pool) {
   // Metadatos de todas las tablas administrables (para construir el selector y los formularios)
   app.get('/api/admin/general/db/tables', async (req, res) => {
-    // El identificador sale del token (actorId), no de req.query.adminUserId:
-    // leerlo del parámetro permite suplantar a cualquiera.
-    const adminUserId = actorId(req);
-    // Solo lectura: no hace falta sacar un cliente del pool ni liberarlo. El
-    // pool expone .query igual que un cliente, y resolveAdminAccess no usa
-    // nada más.
-    const scope = await resolveAdminAccess(pool, adminUserId, null);
-    if (!scope.ok && !scope.isProgramAdmin) {
-      return res.status(403).json({ error: 'Acceso denegado. Se requieren permisos de Administrador General del Sistema.' });
+    const { adminUserId } = req.query;
+    const client = await pool.connect();
+    try {
+      const scope = await resolveAdminAccess(client, adminUserId, null);
+      if (!scope.ok && !scope.isProgramAdmin) {
+        return res.status(403).json({ error: 'Acceso denegado. Se requieren permisos de Administrador General del Sistema.' });
+      }
+      if (scope.isProgramAdmin && !scope.isGeneralAdmin) {
+        // El Administrador de Programa solo gestiona líneas y sublíneas.
+        const tables = Object.entries(TABLE_REGISTRY)
+          .filter(([key]) => PROGRAM_ADMIN_ALLOWED_TABLES.has(key))
+          .map(([key, cfg]) => ({
+            key,
+            label: cfg.label,
+            pk: cfg.pk,
+            columns: cfg.columns,
+            programScoped: !!cfg.programScoped,
+          }));
+        return res.json({ tables });
+      }
+      const tables = Object.entries(TABLE_REGISTRY).map(([key, cfg]) => ({
+        key,
+        label: cfg.label,
+        pk: cfg.pk,
+        columns: cfg.columns,
+        programScoped: !!cfg.programScoped,
+      }));
+      return res.json({ tables });
+    } finally {
+      client.release();
     }
-
-    // El Administrador de Programa solo gestiona líneas y sublíneas.
-    const entradas = scope.isProgramAdmin && !scope.isGeneralAdmin
-      ? Object.entries(TABLE_REGISTRY).filter(([key]) => PROGRAM_ADMIN_ALLOWED_TABLES.has(key))
-      : Object.entries(TABLE_REGISTRY);
-
-    const tables = entradas.map(([key, cfg]) => ({
-      key,
-      label: cfg.label,
-      pk: cfg.pk,
-      columns: cfg.columns,
-      programScoped: !!cfg.programScoped,
-    }));
-    return res.json({ tables });
   });
 
   // Listado de filas de una tabla (incluye el nombre "visible" de cada FK)
@@ -356,13 +369,13 @@ export function registerAdminDbCrudRoutes(app, pool) {
   //                                        programa seleccionado
   app.get('/api/admin/general/db/:tableKey', async (req, res) => {
     const { tableKey } = req.params;
-    const { programId } = req.query;
-    const adminUserId = actorId(req);
+    const { adminUserId, programId } = req.query;
     const cfg = getTableConfig(tableKey);
     if (!cfg) return res.status(404).json({ error: 'Tabla no reconocida.' });
 
+    const client = await pool.connect();
     try {
-      const scope = await resolveAdminAccess(pool, adminUserId, tableKey);
+      const scope = await resolveAdminAccess(client, adminUserId, tableKey);
       if (!scope.ok) {
         return res.status(403).json({ error: 'Acceso denegado.' });
       }
@@ -404,67 +417,51 @@ export function registerAdminDbCrudRoutes(app, pool) {
         whereClause = ` WHERE (t.program_id IS NULL OR t.program_id = $${values.length})`;
       }
 
-      const result = await pool.query(
+      const result = await client.query(
         `SELECT ${selectCols} FROM ${cfg.table} t ${joins}${whereClause} ORDER BY t.${cfg.pk} DESC LIMIT 500;`,
         values,
       );
-
-      // La columna de contraseñas nunca sale del servidor, ni siquiera cifrada:
-      // no hay nada que un administrador pueda hacer con ella y su sitio en la
-      // pantalla es lo que hacía que las contraseñas reales fueran visibles.
-      const rows = cfg.columns.some((c) => c.name === 'password')
-        ? result.rows.map((row) => ({ ...row, password: '' }))
-        : result.rows;
-
-      return res.json({ rows });
+      return res.json({ rows: result.rows });
     } catch (err) {
       console.error(`Admin DB list error (${tableKey}):`, err);
       return res.status(500).json({ error: 'No fue posible consultar la tabla.' });
+    } finally {
+      client.release();
     }
   });
 
   // Crear fila
   app.post('/api/admin/general/db/:tableKey', async (req, res) => {
     const { tableKey } = req.params;
-    // `adminUserId` se descarta del cuerpo: la identidad ya no se lee de ahí,
-    // y así no se cuela como si fuera una columna de la tabla.
-    const { adminUserId: _identidadDescartada, ...body } = req.body || {};
-    const adminUserId = actorId(req);
+    const { adminUserId, ...body } = req.body || {};
     const cfg = getTableConfig(tableKey);
     if (!cfg) return res.status(404).json({ error: 'Tabla no reconocida.' });
 
-    // Las contraseñas nunca entran a la tabla tal como se escriben. Esta
-    // herramienta edita filas en bruto, así que aquí es donde hay que
-    // interceptarlas; antes ponía '123456' cuando el campo venía vacío, lo que
-    // creaba cuentas con una contraseña conocida por todo el mundo.
-    if (tableKey === 'users') {
-      if (!body.password || !String(body.password).trim()) {
-        return res.status(400).json({
-          error: 'Indica una contraseña para el nuevo usuario. Se guardará cifrada.',
-        });
-      }
-      body.password = await hashPassword(String(body.password).trim());
+    // Reglas de conveniencia específicas para "users" (mismo comportamiento
+    // que la pestaña dedicada "Usuarios": contraseña por defecto si viene vacía).
+    if (tableKey === 'users' && (!body.password || !String(body.password).trim())) {
+      body.password = '123456';
     }
 
+    const client = await pool.connect();
     let attemptedResync = false;
 
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      try {
-        const nuevoId = await withTransaction(pool, async (client) => {
-          // El alcance viene de origin/main y distingue Administrador General
-          // de Administrador de Programa. Dentro de withTransaction el rechazo
-          // se LANZA en vez de devolverse: un `return` aquí saldría del
-          // callback sin revertir la transacción.
+    try {
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        try {
+          await client.query('BEGIN');
           const scope = await resolveAdminAccess(client, adminUserId, tableKey);
           if (!scope.ok || (scope.isProgramAdmin && !scope.allowedForWrite)) {
-            throw new HttpError(403, 'Acceso denegado.');
+            await client.query('ROLLBACK');
+            return res.status(403).json({ error: 'Acceso denegado.' });
           }
           const resolvedUserId = scope.resolvedUserId;
 
           if (scope.isProgramAdmin) {
             if (!scope.programId) {
-              throw new HttpError(403, 'Tu usuario no tiene un programa académico asignado.');
+              await client.query('ROLLBACK');
+              return res.status(403).json({ error: 'Tu usuario no tiene un programa académico asignado.' });
             }
             if (tableKey === 'research_lines') {
               // Nunca se permite crear una línea para otro programa distinto al propio.
@@ -476,7 +473,8 @@ export function registerAdminDbCrudRoutes(app, pool) {
                 [lineId],
               );
               if (lineCheck.rows.length === 0 || String(lineCheck.rows[0].program_id) !== String(scope.programId)) {
-                throw new HttpError(403, 'Solo puedes crear sublíneas dentro de líneas de tu propio programa.');
+                await client.query('ROLLBACK');
+                return res.status(403).json({ error: 'Solo puedes crear sublíneas dentro de líneas de tu propio programa.' });
               }
             }
           }
@@ -500,166 +498,158 @@ export function registerAdminDbCrudRoutes(app, pool) {
           const result = await client.query(insertSql, values);
 
           await logAdminTrace(client, resolvedUserId, `Creación de registro en ${cfg.label}`, cfg.table, null, JSON.stringify(body));
-          return result.rows[0][cfg.pk];
-        });
+          await client.query('COMMIT');
+          return res.json({ success: true, id: result.rows[0][cfg.pk] });
+        } catch (err) {
+          await client.query('ROLLBACK');
 
-        return res.json({ success: true, id: nuevoId });
-      } catch (err) {
-        // El rechazo por permisos no es un fallo técnico: no se reintenta.
-        if (err instanceof HttpError) {
-          return res.status(err.status).json({ error: err.message });
+          // Secuencia desincronizada: resincronizar y reintentar UNA vez.
+          if (!attemptedResync && isPkUniqueViolation(err, cfg)) {
+            attemptedResync = true;
+            const resynced = await resyncSequence(client, cfg);
+            if (resynced) continue; // reintenta el while(true)
+          }
+
+          console.error(`Admin DB create error (${tableKey}):`, err);
+          return res.status(500).json({ error: err.detail || err.message || 'No fue posible crear el registro.' });
         }
-
-        // Secuencia desincronizada: resincronizar y reintentar UNA vez.
-        // La transacción ya quedó revertida, así que la resincronización va por el pool.
-        if (!attemptedResync && isPkUniqueViolation(err, cfg)) {
-          attemptedResync = true;
-          const resynced = await resyncSequence(pool, cfg);
-          if (resynced) continue; // reintenta el while(true)
-        }
-
-        console.error(`Admin DB create error (${tableKey}):`, err);
-        return res.status(500).json({ error: err.detail || err.message || 'No fue posible crear el registro.' });
       }
+    } finally {
+      client.release();
     }
   });
 
   // Actualizar fila
   app.put('/api/admin/general/db/:tableKey/:id', async (req, res) => {
     const { tableKey, id } = req.params;
-    // `adminUserId` se descarta del cuerpo: la identidad ya no se lee de ahí,
-    // y así no se cuela como si fuera una columna de la tabla.
-    const { adminUserId: _identidadDescartada, ...body } = req.body || {};
-    const adminUserId = actorId(req);
+    const { adminUserId, ...body } = req.body || {};
     const cfg = getTableConfig(tableKey);
     if (!cfg) return res.status(404).json({ error: 'Tabla no reconocida.' });
 
-    if (tableKey === 'users') {
-      if (body.password === '' || body.password === undefined) {
-        delete body.password; // no pisar la contraseña si el campo llega vacío al editar
-      } else if (!isHashed(body.password)) {
-        // Se comprueba si ya venía cifrada para no volver a cifrar un hash
-        // cuando el formulario reenvía el valor que mostró la tabla.
-        body.password = await hashPassword(String(body.password).trim());
-      }
+    if (tableKey === 'users' && (body.password === '' || body.password === undefined)) {
+      delete body.password; // no pisar la contraseña si el campo llega vacío al editar
     }
 
+    const client = await pool.connect();
     try {
-      await withTransaction(pool, async (client) => {
-        // Comprobaciones de alcance de origin/main, con los rechazos lanzados
-        // como HttpError: dentro de withTransaction un `return` no revierte.
-        const scope = await resolveAdminAccess(client, adminUserId, tableKey);
-        if (!scope.ok || (scope.isProgramAdmin && !scope.allowedForWrite)) {
-          throw new HttpError(403, 'Acceso denegado.');
+      await client.query('BEGIN');
+      const scope = await resolveAdminAccess(client, adminUserId, tableKey);
+      if (!scope.ok || (scope.isProgramAdmin && !scope.allowedForWrite)) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'Acceso denegado.' });
+      }
+      const resolvedUserId = scope.resolvedUserId;
+
+      if (scope.isProgramAdmin) {
+        if (!scope.programId) {
+          await client.query('ROLLBACK');
+          return res.status(403).json({ error: 'Tu usuario no tiene un programa académico asignado.' });
         }
-        const resolvedUserId = scope.resolvedUserId;
-
-        if (scope.isProgramAdmin) {
-          if (!scope.programId) {
-            throw new HttpError(403, 'Tu usuario no tiene un programa académico asignado.');
+        if (tableKey === 'research_lines') {
+          const current = await client.query('SELECT program_id FROM public.research_lines WHERE research_line_id = $1', [id]);
+          if (current.rows.length === 0 || String(current.rows[0].program_id) !== String(scope.programId)) {
+            await client.query('ROLLBACK');
+            return res.status(403).json({ error: 'No puedes editar líneas de investigación de otro programa académico.' });
           }
-          if (tableKey === 'research_lines') {
-            const current = await client.query('SELECT program_id FROM public.research_lines WHERE research_line_id = $1', [id]);
-            if (current.rows.length === 0 || String(current.rows[0].program_id) !== String(scope.programId)) {
-              throw new HttpError(403, 'No puedes editar líneas de investigación de otro programa académico.');
-            }
-            // No se permite reasignar la línea a otro programa.
-            body.program_id = scope.programId;
-          } else if (tableKey === 'research_sublines') {
-            const current = await client.query(
-              `SELECT rl.program_id
-               FROM public.research_sublines rsl
-               JOIN public.research_lines rl ON rl.research_line_id = rsl.research_line_id
-               WHERE rsl.research_subline_id = $1`,
-              [id],
-            );
-            if (current.rows.length === 0 || String(current.rows[0].program_id) !== String(scope.programId)) {
-              throw new HttpError(403, 'No puedes editar sublíneas de otro programa académico.');
-            }
-            if (body.research_line_id) {
-              const targetLine = await client.query('SELECT program_id FROM public.research_lines WHERE research_line_id = $1', [body.research_line_id]);
-              if (targetLine.rows.length === 0 || String(targetLine.rows[0].program_id) !== String(scope.programId)) {
-                throw new HttpError(403, 'Solo puedes mover la sublínea a líneas de tu propio programa.');
-              }
+          // No se permite reasignar la línea a otro programa.
+          body.program_id = scope.programId;
+        } else if (tableKey === 'research_sublines') {
+          const current = await client.query(
+            `SELECT rl.program_id
+             FROM public.research_sublines rsl
+             JOIN public.research_lines rl ON rl.research_line_id = rsl.research_line_id
+             WHERE rsl.research_subline_id = $1`,
+            [id],
+          );
+          if (current.rows.length === 0 || String(current.rows[0].program_id) !== String(scope.programId)) {
+            await client.query('ROLLBACK');
+            return res.status(403).json({ error: 'No puedes editar sublíneas de otro programa académico.' });
+          }
+          if (body.research_line_id) {
+            const targetLine = await client.query('SELECT program_id FROM public.research_lines WHERE research_line_id = $1', [body.research_line_id]);
+            if (targetLine.rows.length === 0 || String(targetLine.rows[0].program_id) !== String(scope.programId)) {
+              await client.query('ROLLBACK');
+              return res.status(403).json({ error: 'Solo puedes mover la sublínea a líneas de tu propio programa.' });
             }
           }
         }
+      }
 
-        const colNames = cfg.columns.map((c) => c.name).filter((name) => name !== 'password' || body.password !== undefined);
-        const setClause = colNames.map((name, i) => `${name} = $${i + 1}`).join(', ');
-        const values = colNames.map((name) => (body[name] === '' ? null : body[name]));
-        values.push(id);
+      const colNames = cfg.columns.map((c) => c.name).filter((name) => name !== 'password' || body.password !== undefined);
+      const setClause = colNames.map((name, i) => `${name} = $${i + 1}`).join(', ');
+      const values = colNames.map((name) => (body[name] === '' ? null : body[name]));
+      values.push(id);
 
-        const updateSql = `UPDATE ${cfg.table} SET ${setClause} WHERE ${cfg.pk} = $${values.length};`;
-        await client.query(updateSql, values);
+      const updateSql = `UPDATE ${cfg.table} SET ${setClause} WHERE ${cfg.pk} = $${values.length};`;
+      await client.query(updateSql, values);
 
-        await logAdminTrace(client, resolvedUserId, `Edición de registro en ${cfg.label} (ID ${id})`, cfg.table, null, JSON.stringify(body));
-      });
-
+      await logAdminTrace(client, resolvedUserId, `Edición de registro en ${cfg.label} (ID ${id})`, cfg.table, null, JSON.stringify(body));
+      await client.query('COMMIT');
       return res.json({ success: true });
     } catch (err) {
-      if (err instanceof HttpError) {
-        return res.status(err.status).json({ error: err.message });
-      }
+      await client.query('ROLLBACK');
       console.error(`Admin DB update error (${tableKey}):`, err);
       return res.status(500).json({ error: err.detail || err.message || 'No fue posible actualizar el registro.' });
+    } finally {
+      client.release();
     }
   });
 
   // Eliminar fila
   app.delete('/api/admin/general/db/:tableKey/:id', async (req, res) => {
     const { tableKey, id } = req.params;
-    const adminUserId = actorId(req);
+    const { adminUserId } = req.body || {};
     const cfg = getTableConfig(tableKey);
     if (!cfg) return res.status(404).json({ error: 'Tabla no reconocida.' });
 
+    const client = await pool.connect();
     try {
-      await withTransaction(pool, async (client) => {
-        // Comprobaciones de alcance de origin/main, lanzadas como HttpError.
-        const scope = await resolveAdminAccess(client, adminUserId, tableKey);
-        if (!scope.ok || (scope.isProgramAdmin && !scope.allowedForWrite)) {
-          throw new HttpError(403, 'Acceso denegado.');
+      await client.query('BEGIN');
+      const scope = await resolveAdminAccess(client, adminUserId, tableKey);
+      if (!scope.ok || (scope.isProgramAdmin && !scope.allowedForWrite)) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'Acceso denegado.' });
+      }
+      const resolvedUserId = scope.resolvedUserId;
+
+      if (scope.isProgramAdmin) {
+        if (!scope.programId) {
+          await client.query('ROLLBACK');
+          return res.status(403).json({ error: 'Tu usuario no tiene un programa académico asignado.' });
         }
-        const resolvedUserId = scope.resolvedUserId;
-
-        if (scope.isProgramAdmin) {
-          if (!scope.programId) {
-            throw new HttpError(403, 'Tu usuario no tiene un programa académico asignado.');
+        if (tableKey === 'research_lines') {
+          const current = await client.query('SELECT program_id FROM public.research_lines WHERE research_line_id = $1', [id]);
+          if (current.rows.length === 0 || String(current.rows[0].program_id) !== String(scope.programId)) {
+            await client.query('ROLLBACK');
+            return res.status(403).json({ error: 'No puedes eliminar líneas de investigación de otro programa académico.' });
           }
-          if (tableKey === 'research_lines') {
-            const current = await client.query('SELECT program_id FROM public.research_lines WHERE research_line_id = $1', [id]);
-            if (current.rows.length === 0 || String(current.rows[0].program_id) !== String(scope.programId)) {
-              throw new HttpError(403, 'No puedes eliminar líneas de investigación de otro programa académico.');
-            }
-          } else if (tableKey === 'research_sublines') {
-            const current = await client.query(
-              `SELECT rl.program_id
-               FROM public.research_sublines rsl
-               JOIN public.research_lines rl ON rl.research_line_id = rsl.research_line_id
-               WHERE rsl.research_subline_id = $1`,
-              [id],
-            );
-            if (current.rows.length === 0 || String(current.rows[0].program_id) !== String(scope.programId)) {
-              throw new HttpError(403, 'No puedes eliminar sublíneas de otro programa académico.');
-            }
+        } else if (tableKey === 'research_sublines') {
+          const current = await client.query(
+            `SELECT rl.program_id
+             FROM public.research_sublines rsl
+             JOIN public.research_lines rl ON rl.research_line_id = rsl.research_line_id
+             WHERE rsl.research_subline_id = $1`,
+            [id],
+          );
+          if (current.rows.length === 0 || String(current.rows[0].program_id) !== String(scope.programId)) {
+            await client.query('ROLLBACK');
+            return res.status(403).json({ error: 'No puedes eliminar sublíneas de otro programa académico.' });
           }
         }
+      }
 
-        await client.query(`DELETE FROM ${cfg.table} WHERE ${cfg.pk} = $1;`, [id]);
+      await client.query(`DELETE FROM ${cfg.table} WHERE ${cfg.pk} = $1;`, [id]);
 
-        await logAdminTrace(client, resolvedUserId, `Eliminación de registro en ${cfg.label} (ID ${id})`, cfg.table, `ID ${id}`, null);
-      });
-
+      await logAdminTrace(client, resolvedUserId, `Eliminación de registro en ${cfg.label} (ID ${id})`, cfg.table, `ID ${id}`, null);
+      await client.query('COMMIT');
       return res.json({ success: true });
     } catch (err) {
-      // Se atiende antes del 409: un rechazo por permisos no es un conflicto de
-      // integridad referencial y debe seguir respondiendo 403.
-      if (err instanceof HttpError) {
-        return res.status(err.status).json({ error: err.message });
-      }
+      await client.query('ROLLBACK');
       console.error(`Admin DB delete error (${tableKey}):`, err);
       // Error típico: violación de llave foránea (el registro está en uso en otra tabla)
       return res.status(409).json({ error: 'No se pudo eliminar: el registro está referenciado en otra tabla.' });
+    } finally {
+      client.release();
     }
   });
 }

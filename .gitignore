@@ -1,42 +1,24 @@
-# ─────────────────────────────────────────────────────────────────────────────
-# GradoHub — Universidad CESMAG
-#
-# Este archivo no es burocracia: su ausencia es la causa raíz de que las
-# credenciales de la base de datos y un volcado con datos personales reales
-# acabaran publicados en un repositorio público.
-# ─────────────────────────────────────────────────────────────────────────────
-
-# Secretos y configuración local
-.env
-.env.*
-!.env.example
-
 # Dependencias
 node_modules/
-*/node_modules/
+frontend/node_modules/
+backend/node_modules/
 
-# Artefactos de compilación
-dist/
-build/
+# Variables de entorno (nunca deben subirse a GitHub)
+.env
+.env.local
+.env.*.local
+frontend/.env
+frontend/.env.local
+backend/.env
+backend/.env.local
+
+# Builds
 frontend/dist/
-*/.vite/
+dist/
 
-# Volcados y copias de seguridad de la base de datos
-*.sql.gz
-*.dump
-*.bak
-scratch/dump_*.sql
-
-# Registros y temporales
-*.log
+# Logs
 npm-debug.log*
-logs/
-.tmp/
-*.tmp
+*.log
 
-# Sistema operativo y editores
-Thumbs.db
-desktop.ini
+# Sistema
 .DS_Store
-.vscode/
-.idea/

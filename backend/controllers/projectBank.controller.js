@@ -1,16 +1,9 @@
 import pool from '../config/db.js';
 import { getUserContext, recordProjectBankHistory, computeProjectBankDiff } from '../services/project_bank_helpers.js';
-import { actorId } from '../middlewares/auth.middleware.js';
-import { HttpError, sendError } from '../utils/httpError.js';
-import { withTransaction } from '../db/withTransaction.js';
 
 export const getProjectBank = async (req, res) => {
-  // `proposerId` es el filtro nuevo de origin/main y se usa más abajo.
-  // El identificador de quien pregunta sigue saliendo de actorId(req), que lo
-  // toma del token: leerlo de req.query.userId o de la cabecera x-user-id
-  // permite suplantar a cualquiera con solo cambiar un parámetro.
   const { programId, status, lineId, sublineId, proposerRole, proposerId, year, search } = req.query;
-  const requestingUserId = actorId(req);
+  const requestingUserId = req.query.userId || req.headers['x-user-id'] || null;
 
   try {
     const userCtx = await getUserContext(pool, requestingUserId);
@@ -131,7 +124,8 @@ export const getProjectBank = async (req, res) => {
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (err) {
-    return sendError(res, err, 'Get project bank error:', 'Error al obtener ideas del Banco de Proyectos.');
+    console.error('Get project bank error:', err);
+    res.status(500).json({ error: 'Error al obtener ideas del Banco de Proyectos: ' + err.message });
   }
 };
 
@@ -139,7 +133,7 @@ export const getProjectBankDetail = async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) return res.status(400).json({ error: 'ID de proyecto no válido.' });
 
-  const requestingUserId = actorId(req);
+  const requestingUserId = req.query.userId || req.headers['x-user-id'] || null;
 
   try {
     const userCtx = await getUserContext(pool, requestingUserId);
@@ -195,7 +189,8 @@ export const getProjectBankDetail = async (req, res) => {
 
     res.json(project);
   } catch (err) {
-    return sendError(res, err, 'Get project bank by id error:', 'Error al consultar idea.');
+    console.error('Get project bank by id error:', err);
+    res.status(500).json({ error: 'Error al consultar idea: ' + err.message });
   }
 };
 
@@ -203,7 +198,7 @@ export const getProjectBankHistory = async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) return res.status(400).json({ error: 'ID de proyecto no válido.' });
 
-  const requestingUserId = actorId(req);
+  const requestingUserId = req.query.userId || req.headers['x-user-id'] || null;
 
   try {
     const userCtx = await getUserContext(pool, requestingUserId);
@@ -258,7 +253,8 @@ export const getProjectBankHistory = async (req, res) => {
     const histRes = await pool.query(historyQuery, params);
     res.json(histRes.rows);
   } catch (err) {
-    return sendError(res, err, 'Get project bank history error:', 'Error al consultar historial.');
+    console.error('Get project bank history error:', err);
+    res.status(500).json({ error: 'Error al consultar historial: ' + err.message });
   }
 };
 
@@ -273,25 +269,19 @@ export const createProjectBankIdea = async (req, res) => {
     programId,
     keywords,
     observations,
+    userId,
+    userRole,
   } = req.body;
-
-  // Quién hace la petición lo dice el token, no el cuerpo del mensaje. El rol
-  // declarado por el cliente se usaba como respaldo cuando no se encontraba al
-  // usuario, así que bastaba con llamarse "administrador" para crear y editar
-  // ideas del banco (§5.5 de la auditoría).
-  const userId = actorId(req);
 
   if (!title || !description) {
     return res.status(400).json({ error: 'Título y descripción son campos obligatorios.' });
   }
 
   const userCtx = await getUserContext(pool, userId);
-  // Se conservan los distintivos de origin/main, que distinguen Administrador
-  // General de Administrador de Programa. Lo que NO se conserva es su respaldo
-  // a `userRole`: ese es el rol que declara el cliente, y admitirlo cuando no
-  // se encuentra al usuario reabre el agujero descrito arriba.
+  const normalizedRole = (userCtx?.role_name || userRole || '').toLowerCase();
   const isAuthorized = !!userCtx
-    && (userCtx.is_general_admin || userCtx.is_program_admin || userCtx.is_docente);
+    ? (userCtx.is_general_admin || userCtx.is_program_admin || userCtx.is_docente)
+    : (normalizedRole.includes('admin') || normalizedRole.includes('docente'));
   if (!isAuthorized) {
     return res.status(403).json({ error: 'No tienes permisos para crear ideas en el Banco de Proyectos.' });
   }
@@ -301,9 +291,9 @@ export const createProjectBankIdea = async (req, res) => {
     ? 'Administrador General'
     : userCtx?.is_program_admin
       ? 'Administrador de Programa'
-      : 'Docente';
-  // No hace falta un caso más: si userCtx no trae ninguno de los tres
-  // distintivos, la comprobación de isAuthorized ya devolvió 403 más arriba.
+      : userCtx?.is_docente
+        ? 'Docente'
+        : (normalizedRole.includes('admin') ? 'Administrador' : 'Docente');
 
   // El Administrador General puede proponer ideas para cualquier programa
   // (o dejarlo sin programa específico). Docentes y Administradores de
@@ -359,7 +349,8 @@ export const createProjectBankIdea = async (req, res) => {
 
     res.status(201).json(createdProject);
   } catch (err) {
-    return sendError(res, err, 'Create project bank error:', 'Error al registrar idea de proyecto.');
+    console.error('Create project bank error:', err);
+    res.status(500).json({ error: 'Error al registrar idea de proyecto: ' + err.message });
   }
 };
 
@@ -377,13 +368,9 @@ export const updateProjectBankIdea = async (req, res) => {
     programId,
     keywords,
     observations,
+    userId,
+    userRole,
   } = req.body;
-
-  // Quién hace la petición lo dice el token, no el cuerpo del mensaje. El rol
-  // declarado por el cliente se usaba como respaldo cuando no se encontraba al
-  // usuario, así que bastaba con llamarse "administrador" para crear y editar
-  // ideas del banco (§5.5 de la auditoría).
-  const userId = actorId(req);
 
   try {
     const checkRes = await pool.query('SELECT * FROM public.project_bank WHERE project_bank_id = $1', [id]);
@@ -393,11 +380,11 @@ export const updateProjectBankIdea = async (req, res) => {
 
     const current = checkRes.rows[0];
     const userCtx = await getUserContext(pool, userId);
-    // Igual que arriba: distintivos de origin/main, sin el respaldo al rol
-    // declarado por el cliente.
-    const isAdmin = !!userCtx && (userCtx.is_general_admin || userCtx.is_program_admin);
-    const isOwnerTeacher = !!userCtx
-      && userCtx.is_docente
+    const normalizedRole = (userCtx?.role_name || userRole || '').toLowerCase();
+    const isAdmin = userCtx
+      ? (userCtx.is_general_admin || userCtx.is_program_admin)
+      : normalizedRole.includes('admin');
+    const isOwnerTeacher = (userCtx ? userCtx.is_docente : normalizedRole.includes('docente'))
       && String(current.proposer_id) === String(userId);
 
     if (!isAdmin && !isOwnerTeacher) {
@@ -461,7 +448,8 @@ export const updateProjectBankIdea = async (req, res) => {
 
     res.json(updatedProject);
   } catch (err) {
-    return sendError(res, err, 'Update project bank error:', 'Error al actualizar idea.');
+    console.error('Update project bank error:', err);
+    res.status(500).json({ error: 'Error al actualizar idea: ' + err.message });
   }
 };
 
@@ -469,10 +457,12 @@ export const toggleProjectBankStatus = async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) return res.status(400).json({ error: 'ID de proyecto no válido.' });
 
-  const { status } = req.body;
-  const userId = actorId(req);
+  const { status, userRole, userId } = req.body;
   const userCtx = await getUserContext(pool, userId);
-  const isAdmin = !!userCtx && (userCtx.is_general_admin || userCtx.is_program_admin);
+  const normalizedRole = (userCtx?.role_name || userRole || '').toLowerCase();
+  const isAdmin = userCtx
+    ? (userCtx.is_general_admin || userCtx.is_program_admin)
+    : normalizedRole.includes('admin');
 
   if (!isAdmin) {
     return res.status(403).json({ error: 'Solo los administradores pueden cambiar el estado del proyecto.' });
@@ -521,7 +511,8 @@ export const toggleProjectBankStatus = async (req, res) => {
 
     res.json(updated);
   } catch (err) {
-    return sendError(res, err, 'Patch project bank status error:', 'Error al cambiar estado.');
+    console.error('Patch project bank status error:', err);
+    res.status(500).json({ error: 'Error al cambiar estado: ' + err.message });
   }
 };
 
@@ -529,126 +520,93 @@ export const selectProjectBankIdea = async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) return res.status(400).json({ error: 'ID de proyecto no válido.' });
 
-  const studentId = actorId(req);
+  const studentId = req.body.studentId || req.query.userId || req.headers['x-user-id'];
 
   if (!studentId) {
     return res.status(400).json({ error: 'Se requiere el identificador del estudiante.' });
   }
 
   try {
-    const asignado = await withTransaction(pool, async (client) => {
-      /* CONDICION DE CARRERA QUE ESTO CIERRA
-       *
-       * La comprobacion de "este estudiante ya tiene un proyecto asignado" y el
-       * UPDATE que se lo asigna estaban separados y fuera de transaccion. Entre
-       * una cosa y otra cabe otra peticion: con dos clics rapidos, o con dos
-       * pestanas abiertas, el mismo estudiante pasaba dos veces la comprobacion
-       * y acababa con dos ideas asignadas, que es justo lo que la regla prohibe.
-       *
-       * El bloqueo consultivo serializa por ESTUDIANTE: dos peticiones suyas se
-       * atienden una detras de otra, mientras que las de estudiantes distintos
-       * siguen en paralelo. Es el mismo patron que ya usa createProject, y se
-       * libera solo al terminar la transaccion.
-       *
-       * Que dos estudiantes distintos peleen por la MISMA idea ya estaba
-       * resuelto: el UPDATE lleva "AND status = Disponible" y el segundo no
-       * actualiza ninguna fila.
-       */
-      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`banco-proyectos-estudiante:${studentId}`]);
+    const studentCtx = await getUserContext(pool, studentId);
+    if (!studentCtx) {
+      return res.status(404).json({ error: 'Estudiante no encontrado en el sistema.' });
+    }
 
-      const studentCtx = await getUserContext(client, studentId);
-      if (!studentCtx) {
-        throw new HttpError(404, 'Estudiante no encontrado en el sistema.');
-      }
+    const projectCheck = await pool.query(
+      `SELECT project_bank_id, title, status, program_id FROM public.project_bank WHERE project_bank_id = $1`,
+      [id]
+    );
 
-      const projectCheck = await client.query(
-        'SELECT project_bank_id, title, status, program_id FROM public.project_bank WHERE project_bank_id = $1',
-        [id],
-      );
+    if (projectCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'El proyecto no existe.' });
+    }
 
-      if (projectCheck.rows.length === 0) {
-        throw new HttpError(404, 'El proyecto no existe.');
-      }
+    const targetProject = projectCheck.rows[0];
 
-      const targetProject = projectCheck.rows[0];
+    if (!studentCtx.program_id || String(targetProject.program_id) !== String(studentCtx.program_id)) {
+      return res.status(403).json({
+        error: 'No puedes seleccionar este proyecto porque pertenece a un programa académico diferente.'
+      });
+    }
 
-      if (!studentCtx.program_id || String(targetProject.program_id) !== String(studentCtx.program_id)) {
-        throw new HttpError(403, 'No puedes seleccionar este proyecto porque pertenece a un programa académico diferente.');
-      }
+    const existingAssignment = await pool.query(
+      `SELECT project_bank_id, title FROM public.project_bank 
+       WHERE assigned_student_id = $1 AND status = 'Asignado'`,
+      [studentId]
+    );
 
-      const existingAssignment = await client.query(
-        `SELECT project_bank_id, title FROM public.project_bank
-          WHERE assigned_student_id = $1 AND status = 'Asignado'`,
-        [studentId],
-      );
+    if (existingAssignment.rows.length > 0) {
+      return res.status(400).json({
+        error: 'Ya tienes un proyecto de grado asignado. Un estudiante solamente puede tener un proyecto asignado.',
+        assignedProject: existingAssignment.rows[0]
+      });
+    }
 
-      if (existingAssignment.rows.length > 0) {
-        const yaAsignado = new HttpError(400, 'Ya tienes un proyecto de grado asignado. Un estudiante solamente puede tener un proyecto asignado.');
-        yaAsignado.assignedProject = existingAssignment.rows[0];
-        throw yaAsignado;
-      }
+    if (targetProject.status !== 'Disponible') {
+      return res.status(400).json({
+        error: `El proyecto no está disponible para selección. Estado actual: ${targetProject.status}`
+      });
+    }
 
-      if (targetProject.status !== 'Disponible') {
-        throw new HttpError(400, `El proyecto no está disponible para selección. Estado actual: ${targetProject.status}`);
-      }
+    const assignRes = await pool.query(
+      `UPDATE public.project_bank
+       SET 
+         status = 'Asignado',
+         assigned_student_id = $1,
+         assigned_at = CURRENT_TIMESTAMP,
+         updated_at = CURRENT_TIMESTAMP
+       WHERE project_bank_id = $2 AND status = 'Disponible'
+       RETURNING *;`,
+      [studentId, id]
+    );
 
-      const assignRes = await client.query(
-        `UPDATE public.project_bank
-            SET status = 'Asignado',
-                assigned_student_id = $1,
-                assigned_at = CURRENT_TIMESTAMP,
-                updated_at = CURRENT_TIMESTAMP
-          WHERE project_bank_id = $2 AND status = 'Disponible'
-          RETURNING *;`,
-        [studentId, id],
-      );
+    if (assignRes.rows.length === 0) {
+      return res.status(409).json({ error: 'El proyecto fue asignado a otro estudiante hace un instante.' });
+    }
 
-      if (assignRes.rows.length === 0) {
-        throw new HttpError(409, 'El proyecto fue asignado a otro estudiante hace un instante.');
-      }
-
-      // El historial va dentro de la misma transaccion, pero bajo un SAVEPOINT
-      // propio: si su INSERT falla, se descarta solo esa anotacion y la
-      // asignacion sigue en pie. Es la misma pauta que usa logAdminTrace, y
-      // evita que un problema en la tabla de auditoria impida a un estudiante
-      // elegir su proyecto de grado.
-      await client.query('SAVEPOINT historial_banco');
-      try {
-        await recordProjectBankHistory(client, {
-          projectBankId: id,
-          userId: studentId,
-          action: 'SELECT',
-          previousStatus: 'Disponible',
-          newStatus: 'Asignado',
-          changes: {
-            event: 'Selección y asignación oficial del proyecto de grado',
-            assigned_student_id: studentId,
-            student_name: studentCtx.full_name,
-            student_program_id: studentCtx.program_id,
-            previous_status: 'Disponible',
-            new_status: 'Asignado',
-          },
-        });
-        await client.query('RELEASE SAVEPOINT historial_banco');
-      } catch (errorHistorial) {
-        await client.query('ROLLBACK TO SAVEPOINT historial_banco');
-        console.error('No se pudo registrar el historial de la seleccion:', errorHistorial);
-      }
-
-      return assignRes.rows[0];
+    await recordProjectBankHistory(pool, {
+      projectBankId: id,
+      userId: studentId,
+      action: 'SELECT',
+      previousStatus: 'Disponible',
+      newStatus: 'Asignado',
+      changes: {
+        event: 'Selección y asignación oficial del proyecto de grado',
+        assigned_student_id: studentId,
+        student_name: studentCtx.full_name,
+        student_program_id: studentCtx.program_id,
+        previous_status: 'Disponible',
+        new_status: 'Asignado',
+      },
     });
 
     res.json({
       message: 'Proyecto seleccionado correctamente.',
-      project: asignado,
+      project: assignRes.rows[0]
     });
   } catch (err) {
-    // El aviso de "ya tienes un proyecto" acompaña al proyecto en cuestion, que
-    // la pantalla usa para enlazarlo.
-    if (err instanceof HttpError && err.assignedProject) {
-      return res.status(err.status).json({ error: err.message, assignedProject: err.assignedProject });
-    }
-    return sendError(res, err, 'Select project bank error:', 'Error al seleccionar proyecto.');
+    console.error('Select project bank error:', err);
+    res.status(500).json({ error: 'Error al seleccionar proyecto: ' + err.message });
   }
 };
 
@@ -696,6 +654,7 @@ export const getStudentAssignedProject = async (req, res) => {
 
     res.json({ hasAssignedProject: true, project: result.rows[0] });
   } catch (err) {
-    return sendError(res, err, 'Get student assigned project error:', 'Error al consultar proyecto asignado.');
+    console.error('Get student assigned project error:', err);
+    res.status(500).json({ error: 'Error al consultar proyecto asignado: ' + err.message });
   }
 };

@@ -1,23 +1,5 @@
 import pool from '../config/db.js';
 
-/**
- * Catálogos que un visitante sin sesión necesita para poder registrarse.
- *
- * El resto —roles, permisos, estados, líneas y sublíneas de investigación— solo
- * se entrega a quien tiene sesión. Antes este endpoint publicaba las tablas
- * `roles` y `permissions` completas a cualquiera que abriera la URL, lo que
- * equivale a publicar el mapa de privilegios del sistema.
- */
-const CATALOGOS_PUBLICOS = ['programs', 'faculties', 'semesters', 'curricula'];
-
-function recortarParaAnonimos(catalogos) {
-  const recortado = {};
-  for (const clave of Object.keys(catalogos)) {
-    recortado[clave] = CATALOGOS_PUBLICOS.includes(clave) ? catalogos[clave] : [];
-  }
-  return recortado;
-}
-
 export const getCatalogs = async (req, res) => {
   const { program_id, programId } = req.query;
   const targetProgramId = (program_id || programId) ? parseInt(program_id || programId, 10) : null;
@@ -48,7 +30,7 @@ export const getCatalogs = async (req, res) => {
       pool.query('SELECT degree_option_id, name, description FROM public.degree_options ORDER BY degree_option_id'),
     ]);
 
-    const catalogos = {
+    res.json({
       statuses: statuses.rows,
       modalities: modalities.rows,
       lines: lines.rows,
@@ -60,9 +42,7 @@ export const getCatalogs = async (req, res) => {
       roles: roles.rows,
       permissions: permissions.rows,
       degreeOptions: degreeOptions.rows,
-    };
-
-    res.json(req.user ? catalogos : recortarParaAnonimos(catalogos));
+    });
   } catch (err) {
     console.error('Catalogs error:', err);
     res.status(500).json({ error: 'Error al cargar catálogos.' });

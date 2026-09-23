@@ -1,23 +1,4 @@
 import pool from '../config/db.js';
-import { actorId } from '../middlewares/auth.middleware.js';
-import { withTransaction } from '../db/withTransaction.js';
-import { HttpError, sendError } from '../utils/httpError.js';
-
-/**
- * Solo la propia persona —o alguien administrativo— puede consultar o cambiar
- * los datos académicos de un estudiante.
- *
- * Antes estos endpoints solo comprobaban que el identificador de la URL fuera
- * válido: cambiando ese identificador cualquiera podía leer el proceso de
- * investigación de otro estudiante o moverlo de semestre (§6.2 de la auditoría).
- */
-async function exigirPropioOAdministrativo(client, req, targetUserId) {
-  const solicitante = actorId(req);
-  if (!solicitante) throw new HttpError(401, 'Debes iniciar sesión para realizar esta acción.');
-  if (String(solicitante) === String(targetUserId)) return;
-  if (await assertAdmin(client, solicitante)) return;
-  throw new HttpError(403, 'No tienes permisos para consultar o modificar los datos de otro estudiante.');
-}
 
 export const checkCoauthor = async (req, res) => {
   const { email } = req.query;
@@ -62,8 +43,6 @@ export const getStudentResearchProcess = async (req, res) => {
   if (!userId) return res.status(400).json({ error: 'Usuario inválido.' });
 
   try {
-    await exigirPropioOAdministrativo(pool, req, userId);
-
     const studentRes = await pool.query(
       `SELECT s.user_id, sem.semester_number
        FROM public.students s
@@ -123,7 +102,8 @@ export const getStudentResearchProcess = async (req, res) => {
       reason: project ? 'project_exists' : semesterNumber === 8 ? null : 'previous_proposal_required',
     });
   } catch (err) {
-    return sendError(res, err, 'Student research process error:', 'No fue posible consultar el proceso académico.');
+    console.error('Student research process error:', err);
+    return res.status(500).json({ error: 'No fue posible consultar el proceso académico.' });
   }
 };
 
@@ -132,44 +112,46 @@ export const updateStudentAcademicProfile = async (req, res) => {
   const semesterId = Number(req.body?.semesterId);
   if (!userId || !Number.isInteger(semesterId)) return res.status(400).json({ error: 'Selecciona un semestre válido.' });
 
+  const client = await pool.connect();
   try {
-    const curriculumId = await withTransaction(pool, async (client) => {
-      await exigirPropioOAdministrativo(client, req, userId);
-
-      const userRes = await client.query('SELECT user_id FROM public.users WHERE user_id::text = $1 LIMIT 1', [userId]);
-      if (userRes.rows.length === 0) {
-        throw new HttpError(404, 'Usuario no encontrado.');
-      }
-      const semesterRes = await client.query('SELECT semester_id FROM public.semesters WHERE semester_id = $1 LIMIT 1', [semesterId]);
-      if (semesterRes.rows.length === 0) {
-        throw new HttpError(400, 'El semestre seleccionado no existe.');
-      }
-      const curriculumRes = await client.query(
-        `SELECT curriculum_id FROM public.academic_curricula WHERE LOWER(status) = 'activo' ORDER BY curriculum_id LIMIT 1`,
+    await client.query('BEGIN');
+    const userRes = await client.query('SELECT user_id FROM public.users WHERE user_id::text = $1 LIMIT 1', [userId]);
+    if (userRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Usuario no encontrado.' });
+    }
+    const semesterRes = await client.query('SELECT semester_id FROM public.semesters WHERE semester_id = $1 LIMIT 1', [semesterId]);
+    if (semesterRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'El semestre seleccionado no existe.' });
+    }
+    const curriculumRes = await client.query(
+      `SELECT curriculum_id FROM public.academic_curricula WHERE LOWER(status) = 'activo' ORDER BY curriculum_id LIMIT 1`,
+    );
+    if (curriculumRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'No existe un currículo académico activo.' });
+    }
+    const existingStudent = await client.query('SELECT student_id FROM public.students WHERE user_id::text = $1 ORDER BY student_id LIMIT 1', [userId]);
+    if (existingStudent.rows.length > 0) {
+      await client.query(
+        'UPDATE public.students SET semester_id = $1, curriculum_id = $2 WHERE student_id = $3',
+        [semesterId, curriculumRes.rows[0].curriculum_id, existingStudent.rows[0].student_id],
       );
-      if (curriculumRes.rows.length === 0) {
-        throw new HttpError(400, 'No existe un currículo académico activo.');
-      }
-      const existingStudent = await client.query('SELECT student_id FROM public.students WHERE user_id::text = $1 ORDER BY student_id LIMIT 1', [userId]);
-      if (existingStudent.rows.length > 0) {
-        await client.query(
-          'UPDATE public.students SET semester_id = $1, curriculum_id = $2 WHERE student_id = $3',
-          [semesterId, curriculumRes.rows[0].curriculum_id, existingStudent.rows[0].student_id],
-        );
-      } else {
-        await client.query(
-          `INSERT INTO public.students (user_id, semester_id, curriculum_id)
-           VALUES ($1, $2, $3)`,
-          [userId, semesterId, curriculumRes.rows[0].curriculum_id],
-        );
-      }
-      return curriculumRes.rows[0].curriculum_id;
-    });
-
-    return res.json({ success: true, semesterId, curriculumId });
+    } else {
+      await client.query(
+        `INSERT INTO public.students (user_id, semester_id, curriculum_id)
+         VALUES ($1, $2, $3)`,
+        [userId, semesterId, curriculumRes.rows[0].curriculum_id],
+      );
+    }
+    await client.query('COMMIT');
+    return res.json({ success: true, semesterId, curriculumId: curriculumRes.rows[0].curriculum_id });
   } catch (err) {
-    return sendError(res, err, 'Update academic profile error:', 'No fue posible guardar el semestre académico.');
-  }
+    await client.query('ROLLBACK');
+    console.error('Update academic profile error:', err);
+    return res.status(500).json({ error: 'No fue posible guardar el semestre académico.' });
+  } finally { client.release(); }
 };
 
 async function assertAdmin(client, userId) {
@@ -183,11 +165,12 @@ async function assertAdmin(client, userId) {
 }
 
 export const getAcademicSettings = async (req, res) => {
+  const client = await pool.connect();
   try {
-    if (!(await assertAdmin(pool, actorId(req)))) return res.status(403).json({ error: 'No tienes permisos para administrar el calendario académico.' });
+    if (!(await assertAdmin(client, req.query.userId))) return res.status(403).json({ error: 'No tienes permisos para administrar el calendario académico.' });
     const [semesters, students] = await Promise.all([
-      pool.query('SELECT semester_id, semester_number, start_date, end_date FROM public.semesters ORDER BY semester_number'),
-      pool.query(
+      client.query('SELECT semester_id, semester_number, start_date, end_date FROM public.semesters ORDER BY semester_number'),
+      client.query(
         `SELECT u.user_id, u.full_name, u.email, sem.semester_number, st.semester_id, p.project_id, p.title, p.code
          FROM public.users u
          JOIN public.user_roles ur ON ur.user_id = u.user_id
@@ -201,47 +184,39 @@ export const getAcademicSettings = async (req, res) => {
     ]);
     return res.json({ semesters: semesters.rows, students: students.rows });
   } catch (err) {
-    return sendError(res, err, 'Academic settings error:', 'No fue posible cargar la configuración académica.');
-  }
+    console.error('Academic settings error:', err);
+    return res.status(500).json({ error: 'No fue posible cargar la configuración académica.' });
+  } finally { client.release(); }
 };
 
 export const updateSemesterDates = async (req, res) => {
   const semesterId = Number(req.params.id);
-  const { startDate, endDate } = req.body || {};
-  const userId = actorId(req);
+  const { userId, startDate, endDate } = req.body || {};
   if (!Number.isInteger(semesterId)) return res.status(400).json({ error: 'Semestre inválido.' });
+  const client = await pool.connect();
   try {
-    const semester = await withTransaction(pool, async (client) => {
-      if (!(await assertAdmin(client, userId))) {
-        throw new HttpError(403, 'No tienes permisos para administrar el calendario académico.');
-      }
-      if (startDate && endDate && new Date(startDate) > new Date(endDate)) {
-        throw new HttpError(400, 'La fecha de inicio no puede ser posterior a la fecha de fin.');
-      }
-      const result = await client.query(
-        `UPDATE public.semesters SET start_date = $1::date, end_date = $2::date WHERE semester_id = $3
-         RETURNING semester_id, semester_number, start_date, end_date`,
-        [startDate || null, endDate || null, semesterId],
-      );
-      return result.rows[0];
-    });
-
-    return res.json({ semester });
-  } catch (err) {
-    return sendError(res, err, 'Semester dates error:', 'No fue posible guardar las fechas.');
-  }
+    await client.query('BEGIN');
+    if (!(await assertAdmin(client, userId))) { await client.query('ROLLBACK'); return res.status(403).json({ error: 'No tienes permisos para administrar el calendario académico.' }); }
+    if (startDate && endDate && new Date(startDate) > new Date(endDate)) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'La fecha de inicio no puede ser posterior a la fecha de fin.' }); }
+    const result = await client.query(
+      `UPDATE public.semesters SET start_date = $1::date, end_date = $2::date WHERE semester_id = $3
+       RETURNING semester_id, semester_number, start_date, end_date`,
+      [startDate || null, endDate || null, semesterId],
+    );
+    await client.query('COMMIT');
+    return res.json({ semester: result.rows[0] });
+  } catch (err) { await client.query('ROLLBACK'); console.error('Semester dates error:', err); return res.status(500).json({ error: 'No fue posible guardar las fechas.' }); }
+  finally { client.release(); }
 };
 
 export const applyAcademicPromotion = async (req, res) => {
-  const { referenceDate } = req.body || {};
-  const userId = actorId(req);
+  const { userId, referenceDate } = req.body || {};
+  const client = await pool.connect();
   try {
-    const promovidos = await withTransaction(pool, async (client) => {
-      if (!(await assertAdmin(client, userId))) {
-        throw new HttpError(403, 'No tienes permisos para aplicar promociones académicas.');
-      }
-      const today = referenceDate || new Date().toISOString().slice(0, 10);
-      const result = await client.query(
+    await client.query('BEGIN');
+    if (!(await assertAdmin(client, userId))) { await client.query('ROLLBACK'); return res.status(403).json({ error: 'No tienes permisos para aplicar promociones académicas.' }); }
+    const today = referenceDate || new Date().toISOString().slice(0, 10);
+    const result = await client.query(
       `WITH eligible AS (
          SELECT st.student_id, s2.semester_id AS next_semester_id, sem.semester_number
          FROM public.students st
@@ -252,13 +227,10 @@ export const applyAcademicPromotion = async (req, res) => {
        UPDATE public.students st SET semester_id = eligible.next_semester_id
        FROM eligible WHERE st.student_id = eligible.student_id
        RETURNING st.user_id, eligible.semester_number AS previous_semester, eligible.semester_number + 1 AS new_semester`,
-        [today],
-      );
-      return result.rows;
-    });
-
-    return res.json({ promoted: promovidos.length, students: promovidos });
-  } catch (err) {
-    return sendError(res, err, 'Academic promotion error:', 'No fue posible aplicar la promoción académica.');
-  }
+      [today],
+    );
+    await client.query('COMMIT');
+    return res.json({ promoted: result.rows.length, students: result.rows });
+  } catch (err) { await client.query('ROLLBACK'); console.error('Academic promotion error:', err); return res.status(500).json({ error: 'No fue posible aplicar la promoción académica.' }); }
+  finally { client.release(); }
 };

@@ -1,41 +1,23 @@
 import pool from '../config/db.js';
 import { assertAdminGeneral } from '../middlewares/adminGeneral.middleware.js';
-import { actorId } from '../middlewares/auth.middleware.js';
 import { logAdminTrace } from '../services/audit.service.js';
-import { withTransaction } from '../db/withTransaction.js';
-import { HttpError, sendError } from '../utils/httpError.js';
-import { hashPassword } from '../utils/password.js';
-import { randomBytes } from 'crypto';
-
-const ACCESO_DENEGADO = 'Acceso denegado.';
-
-/**
- * Verifica que quien hace la petición sea Administrador General y aborta la
- * operación si no lo es. Al lanzar (en vez de retornar), una transacción en
- * curso se revierte sola: ya no hace falta el ROLLBACK manual en cada control.
- */
-async function exigirAdminGeneral(client, adminUserId, mensaje = ACCESO_DENEGADO) {
-  if (!(await assertAdminGeneral(client, adminUserId))) {
-    throw new HttpError(403, mensaje);
-  }
-}
-
-/* ── USUARIOS ─────────────────────────────────────────────────────────────── */
 
 export const getUsers = async (req, res) => {
-  const { programId } = req.query;
-  const adminUserId = actorId(req);
+  const { adminUserId, programId } = req.query;
+  const client = await pool.connect();
   try {
-    await exigirAdminGeneral(pool, adminUserId, 'Acceso denegado. Se requieren permisos de Administrador General del Sistema.');
+    if (!(await assertAdminGeneral(client, adminUserId))) {
+      return res.status(403).json({ error: 'Acceso denegado. Se requieren permisos de Administrador General del Sistema.' });
+    }
 
     let queryText = `
       SELECT u.user_id, u.full_name, u.email, u.program_id, COALESCE(u.is_active, true) AS is_active, p.name AS program_name,
              COALESCE(
-               json_agg(DISTINCT jsonb_build_object('role_id', r.role_id, 'name', r.name))
+               json_agg(DISTINCT jsonb_build_object('role_id', r.role_id, 'name', r.name)) 
                FILTER (WHERE r.role_id IS NOT NULL), '[]'
              ) AS roles,
              COALESCE(
-               json_agg(DISTINCT jsonb_build_object('permission_id', perm.permission_id, 'name', perm.name))
+               json_agg(DISTINCT jsonb_build_object('permission_id', perm.permission_id, 'name', perm.name)) 
                FILTER (WHERE perm.permission_id IS NOT NULL), '[]'
              ) AS permissions
       FROM public.users u
@@ -57,202 +39,220 @@ export const getUsers = async (req, res) => {
       ORDER BY u.full_name;
     `;
 
-    const result = await pool.query(queryText, params);
+    const result = await client.query(queryText, params);
     return res.json({ users: result.rows });
   } catch (err) {
-    return sendError(res, err, 'Admin get users error:', 'No fue posible consultar la lista de usuarios.');
+    console.error('Admin get users error:', err);
+    return res.status(500).json({ error: 'No fue posible consultar la lista de usuarios.' });
+  } finally {
+    client.release();
   }
 };
 
 export const createUser = async (req, res) => {
-  const { full_name, email, password, program_id, role_ids } = req.body || {};
-  const adminUserId = actorId(req);
+  const { adminUserId, full_name, email, password, program_id, role_ids } = req.body || {};
   if (!full_name || !email) return res.status(400).json({ error: 'Nombre y correo son obligatorios.' });
 
+  const client = await pool.connect();
   try {
-    const creado = await withTransaction(pool, async (client) => {
-      await exigirAdminGeneral(client, adminUserId);
+    await client.query('BEGIN');
+    if (!(await assertAdminGeneral(client, adminUserId))) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Acceso denegado.' });
+    }
 
-      const cleanEmail = email.trim().toLowerCase();
-      const existing = await client.query('SELECT user_id FROM public.users WHERE LOWER(email) = $1', [cleanEmail]);
-      if (existing.rows.length > 0) {
-        throw new HttpError(400, 'El correo electrónico ya está registrado.');
+    const cleanEmail = email.trim().toLowerCase();
+    const existing = await client.query('SELECT user_id FROM public.users WHERE LOWER(email) = $1', [cleanEmail]);
+    if (existing.rows.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'El correo electrónico ya está registrado.' });
+    }
+
+    const newUserId = 'usr_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
+    const userPass = password || '123456';
+    const progId = program_id ? parseInt(program_id, 10) : null;
+
+    await client.query(`
+      INSERT INTO public.users (user_id, full_name, email, password, program_id, is_active)
+      VALUES ($1, $2, $3, $4, $5, true);
+    `, [newUserId, full_name.trim(), cleanEmail, userPass, progId]);
+
+    if (Array.isArray(role_ids) && role_ids.length > 0) {
+      for (const rId of role_ids) {
+        await client.query(`
+          INSERT INTO public.user_roles (user_id, role_id)
+          VALUES ($1, $2)
+          ON CONFLICT (user_id, role_id) DO NOTHING;
+        `, [newUserId, parseInt(rId, 10)]);
       }
+    }
 
-      const userId = 'usr_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
-      // Si no se indica contraseña se genera una temporal aleatoria en lugar de
-      // usar un valor fijo conocido: '123456' era la misma para todo el mundo y
-      // estaba además escrita en la interfaz.
-      const passwordEnClaro = (password && password.trim()) || randomBytes(9).toString('base64url');
-      const progId = program_id ? parseInt(program_id, 10) : null;
-
-      await client.query(`
-        INSERT INTO public.users (user_id, full_name, email, password, program_id, is_active)
-        VALUES ($1, $2, $3, $4, $5, true);
-      `, [userId, full_name.trim(), cleanEmail, await hashPassword(passwordEnClaro), progId]);
-
-      if (Array.isArray(role_ids) && role_ids.length > 0) {
-        for (const rId of role_ids) {
-          await client.query(`
-            INSERT INTO public.user_roles (user_id, role_id)
-            VALUES ($1, $2)
-            ON CONFLICT (user_id, role_id) DO NOTHING;
-          `, [userId, parseInt(rId, 10)]);
-        }
-      }
-
-      await logAdminTrace(client, adminUserId, `Registro de nuevo usuario: ${full_name.trim()} (${cleanEmail})`, 'users', null, `Usuario ${userId}`);
-      return { userId, temporaryPassword: password && password.trim() ? null : passwordEnClaro };
-    });
-
-    return res.json({
-      success: true,
-      userId: creado.userId,
-      temporaryPassword: creado.temporaryPassword,
-    });
+    await logAdminTrace(client, adminUserId, `Registro de nuevo usuario: ${full_name.trim()} (${cleanEmail})`, 'users', null, `Usuario ${newUserId}`);
+    await client.query('COMMIT');
+    return res.json({ success: true, userId: newUserId });
   } catch (err) {
-    return sendError(res, err, 'Admin create user error:', 'No fue posible registrar el nuevo usuario.');
+    await client.query('ROLLBACK');
+    console.error('Admin create user error:', err);
+    return res.status(500).json({ error: 'No fue posible registrar el nuevo usuario.' });
+  } finally {
+    client.release();
   }
 };
 
 export const updateUser = async (req, res) => {
   const targetUserId = req.params.userId;
-  const { full_name, email, password, program_id, is_active } = req.body || {};
-  const adminUserId = actorId(req);
-
+  const { adminUserId, full_name, email, password, program_id, is_active } = req.body || {};
+  const client = await pool.connect();
   try {
-    await withTransaction(pool, async (client) => {
-      await exigirAdminGeneral(client, adminUserId);
+    await client.query('BEGIN');
+    if (!(await assertAdminGeneral(client, adminUserId))) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Acceso denegado.' });
+    }
 
-      const oldRes = await client.query('SELECT full_name, email, program_id, is_active FROM public.users WHERE user_id = $1', [targetUserId]);
-      if (oldRes.rows.length === 0) {
-        throw new HttpError(404, 'Usuario no encontrado.');
-      }
+    const oldRes = await client.query('SELECT full_name, email, program_id, is_active FROM public.users WHERE user_id = $1', [targetUserId]);
+    if (oldRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Usuario no encontrado.' });
+    }
 
-      const oldUser = oldRes.rows[0];
-      const cleanEmail = email ? email.trim().toLowerCase() : oldUser.email;
-      const progId = program_id !== undefined ? (program_id ? parseInt(program_id, 10) : null) : oldUser.program_id;
-      const activeState = is_active !== undefined ? Boolean(is_active) : oldUser.is_active;
+    const oldUser = oldRes.rows[0];
+    const cleanEmail = email ? email.trim().toLowerCase() : oldUser.email;
+    const progId = program_id !== undefined ? (program_id ? parseInt(program_id, 10) : null) : oldUser.program_id;
+    const activeState = is_active !== undefined ? Boolean(is_active) : oldUser.is_active;
 
-      let updateSql = `
-        UPDATE public.users
-        SET full_name = $1, email = $2, program_id = $3, is_active = $4
-      `;
-      const params = [full_name ? full_name.trim() : oldUser.full_name, cleanEmail, progId, activeState];
+    let updateSql = `
+      UPDATE public.users 
+      SET full_name = $1, email = $2, program_id = $3, is_active = $4
+    `;
+    const params = [full_name ? full_name.trim() : oldUser.full_name, cleanEmail, progId, activeState];
 
-      if (password && password.trim().length > 0) {
-        params.push(await hashPassword(password.trim()));
-        updateSql += `, password = $${params.length}`;
-      }
+    if (password && password.trim().length > 0) {
+      params.push(password.trim());
+      updateSql += `, password = $${params.length}`;
+    }
 
-      params.push(targetUserId);
-      updateSql += ` WHERE user_id = $${params.length};`;
+    params.push(targetUserId);
+    updateSql += ` WHERE user_id = $${params.length};`;
 
-      await client.query(updateSql, params);
+    await client.query(updateSql, params);
 
-      await logAdminTrace(
-        client, adminUserId,
-        `Modificación de perfil de usuario: ${targetUserId}`,
-        'users',
-        JSON.stringify(oldUser),
-        JSON.stringify({ full_name, email: cleanEmail, program_id: progId, is_active: activeState })
-      );
-    });
+    await logAdminTrace(
+      client, adminUserId,
+      `Modificación de perfil de usuario: ${targetUserId}`,
+      'users',
+      JSON.stringify(oldUser),
+      JSON.stringify({ full_name, email: cleanEmail, program_id: progId, is_active: activeState })
+    );
 
+    await client.query('COMMIT');
     return res.json({ success: true });
   } catch (err) {
-    return sendError(res, err, 'Admin update user error:', 'No fue posible actualizar el usuario.');
+    await client.query('ROLLBACK');
+    console.error('Admin update user error:', err);
+    return res.status(500).json({ error: 'No fue posible actualizar el usuario.' });
+  } finally {
+    client.release();
   }
 };
 
 export const toggleUserStatus = async (req, res) => {
   const targetUserId = req.params.userId;
-  const { is_active } = req.body || {};
-  const adminUserId = actorId(req);
-
+  const { adminUserId, is_active } = req.body || {};
+  const client = await pool.connect();
   try {
-    const nextState = await withTransaction(pool, async (client) => {
-      await exigirAdminGeneral(client, adminUserId);
+    await client.query('BEGIN');
+    if (!(await assertAdminGeneral(client, adminUserId))) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Acceso denegado.' });
+    }
 
-      const estado = Boolean(is_active);
-      await client.query('UPDATE public.users SET is_active = $1 WHERE user_id = $2', [estado, targetUserId]);
+    const nextState = Boolean(is_active);
+    await client.query('UPDATE public.users SET is_active = $1 WHERE user_id = $2', [nextState, targetUserId]);
+    
+    await logAdminTrace(
+      client, adminUserId,
+      `Cambio de estado de usuario ${targetUserId}: ${nextState ? 'Activo' : 'Inactivo'}`,
+      'users.is_active',
+      !nextState ? 'Activo' : 'Inactivo',
+      nextState ? 'Activo' : 'Inactivo'
+    );
 
-      await logAdminTrace(
-        client, adminUserId,
-        `Cambio de estado de usuario ${targetUserId}: ${estado ? 'Activo' : 'Inactivo'}`,
-        'users.is_active',
-        !estado ? 'Activo' : 'Inactivo',
-        estado ? 'Activo' : 'Inactivo'
-      );
-
-      return estado;
-    });
-
+    await client.query('COMMIT');
     return res.json({ success: true, is_active: nextState });
   } catch (err) {
-    return sendError(res, err, 'Admin toggle user status error:', 'No fue posible cambiar el estado del usuario.');
+    await client.query('ROLLBACK');
+    console.error('Admin toggle user status error:', err);
+    return res.status(500).json({ error: 'No fue posible cambiar el estado del usuario.' });
+  } finally {
+    client.release();
   }
 };
 
 export const assignUserRoles = async (req, res) => {
   const targetUserId = req.params.userId;
-  const { roleIds } = req.body || {};
-  const adminUserId = actorId(req);
-
+  const { adminUserId, roleIds } = req.body || {};
+  const client = await pool.connect();
   try {
-    const roles = await withTransaction(pool, async (client) => {
-      await exigirAdminGeneral(client, adminUserId);
+    await client.query('BEGIN');
+    if (!(await assertAdminGeneral(client, adminUserId))) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Acceso denegado.' });
+    }
 
-      const oldRolesRes = await client.query(`
-        SELECT r.name FROM public.user_roles ur JOIN public.roles r ON r.role_id = ur.role_id WHERE ur.user_id = $1
-      `, [targetUserId]);
-      const oldRolesText = oldRolesRes.rows.map(r => r.name).join(', ') || 'Sin roles';
+    const oldRolesRes = await client.query(`
+      SELECT r.name FROM public.user_roles ur JOIN public.roles r ON r.role_id = ur.role_id WHERE ur.user_id = $1
+    `, [targetUserId]);
+    const oldRolesText = oldRolesRes.rows.map(r => r.name).join(', ') || 'Sin roles';
 
-      await client.query('DELETE FROM public.user_roles WHERE user_id = $1', [targetUserId]);
+    await client.query('DELETE FROM public.user_roles WHERE user_id = $1', [targetUserId]);
 
-      if (Array.isArray(roleIds)) {
-        for (const rId of roleIds) {
-          await client.query(`
-            INSERT INTO public.user_roles (user_id, role_id)
-            VALUES ($1, $2)
-            ON CONFLICT (user_id, role_id) DO NOTHING;
-          `, [targetUserId, parseInt(rId, 10)]);
-        }
+    if (Array.isArray(roleIds)) {
+      for (const rId of roleIds) {
+        await client.query(`
+          INSERT INTO public.user_roles (user_id, role_id)
+          VALUES ($1, $2)
+          ON CONFLICT (user_id, role_id) DO NOTHING;
+        `, [targetUserId, parseInt(rId, 10)]);
       }
+    }
 
-      const newRolesRes = await client.query(`
-        SELECT r.name FROM public.user_roles ur JOIN public.roles r ON r.role_id = ur.role_id WHERE ur.user_id = $1
-      `, [targetUserId]);
-      const newRolesText = newRolesRes.rows.map(r => r.name).join(', ') || 'Sin roles';
+    const newRolesRes = await client.query(`
+      SELECT r.name FROM public.user_roles ur JOIN public.roles r ON r.role_id = ur.role_id WHERE ur.user_id = $1
+    `, [targetUserId]);
+    const newRolesText = newRolesRes.rows.map(r => r.name).join(', ') || 'Sin roles';
 
-      const userRes = await client.query('SELECT full_name, email FROM public.users WHERE user_id = $1', [targetUserId]);
-      const targetName = userRes.rows[0]?.full_name || targetUserId;
+    const userRes = await client.query('SELECT full_name, email FROM public.users WHERE user_id = $1', [targetUserId]);
+    const targetName = userRes.rows[0]?.full_name || targetUserId;
 
-      await logAdminTrace(
-        client, adminUserId,
-        `Asignación de roles al usuario: ${targetName}`,
-        'user_roles',
-        oldRolesText,
-        newRolesText
-      );
+    await logAdminTrace(
+      client, adminUserId,
+      `Asignación de roles al usuario: ${targetName}`,
+      'user_roles',
+      oldRolesText,
+      newRolesText
+    );
 
-      return newRolesRes.rows;
-    });
-
-    return res.json({ success: true, roles });
+    await client.query('COMMIT');
+    return res.json({ success: true, roles: newRolesRes.rows });
   } catch (err) {
-    return sendError(res, err, 'Admin assign roles error:', 'No fue posible actualizar los roles del usuario.');
+    await client.query('ROLLBACK');
+    console.error('Admin assign roles error:', err);
+    return res.status(500).json({ error: 'No fue posible actualizar los roles del usuario.' });
+  } finally {
+    client.release();
   }
 };
 
-/* ── ROLES ────────────────────────────────────────────────────────────────── */
-
 export const getRoles = async (req, res) => {
-  const adminUserId = actorId(req);
+  const { adminUserId } = req.query;
+  const client = await pool.connect();
   try {
-    await exigirAdminGeneral(pool, adminUserId);
+    if (!(await assertAdminGeneral(client, adminUserId))) {
+      return res.status(403).json({ error: 'Acceso denegado.' });
+    }
 
-    const result = await pool.query(`
+    const result = await client.query(`
       SELECT r.role_id, r.name, r.description, COALESCE(r.is_active, true) AS is_active,
              COUNT(DISTINCT ur.user_id)::int AS user_count,
              COALESCE(
@@ -269,120 +269,134 @@ export const getRoles = async (req, res) => {
 
     return res.json({ roles: result.rows });
   } catch (err) {
-    return sendError(res, err, 'Admin get roles error:', 'No fue posible consultar los roles.');
+    console.error('Admin get roles error:', err);
+    return res.status(500).json({ error: 'No fue posible consultar los roles.' });
+  } finally {
+    client.release();
   }
 };
 
 export const createRole = async (req, res) => {
-  const { name, description, is_active } = req.body || {};
-  const adminUserId = actorId(req);
+  const { adminUserId, name, description, is_active } = req.body || {};
   if (!name || !name.trim()) return res.status(400).json({ error: 'El nombre del rol es obligatorio.' });
 
+  const client = await pool.connect();
   try {
-    const nextId = await withTransaction(pool, async (client) => {
-      await exigirAdminGeneral(client, adminUserId);
+    await client.query('BEGIN');
+    if (!(await assertAdminGeneral(client, adminUserId))) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Acceso denegado.' });
+    }
 
-      // El identificador lo asigna la secuencia de la tabla, no la
-      // aplicacion. Antes se calculaba con MAX(role_id)+1, que es una
-      // condicion de carrera: dos altas simultaneas leen el mismo maximo y
-      // la segunda choca contra la clave primaria. La secuencia reparte
-      // identificadores sin carreras porque es la base de datos quien
-      // serializa. (La secuencia de esta tabla estaba desfasada; la
-      // sincroniza backend/scripts/optimize_database.js.)
-      const insertado = await client.query(`
-        INSERT INTO public.roles (name, description, is_active)
-        VALUES ($1, $2, $3)
-        RETURNING role_id;
-      `, [name.trim(), description ? description.trim() : null, is_active !== undefined ? Boolean(is_active) : true]);
-      const roleId = insertado.rows[0].role_id;
+    const maxRes = await client.query('SELECT COALESCE(MAX(role_id), 0) + 1 AS next_id FROM public.roles');
+    const nextId = maxRes.rows[0].next_id;
 
-      await logAdminTrace(client, adminUserId, `Creación de nuevo rol: ${name.trim()}`, 'roles', null, `Rol ID ${roleId}`);
-      return roleId;
-    });
+    await client.query(`
+      INSERT INTO public.roles (role_id, name, description, is_active)
+      VALUES ($1, $2, $3, $4);
+    `, [nextId, name.trim(), description ? description.trim() : null, is_active !== undefined ? Boolean(is_active) : true]);
 
+    await logAdminTrace(client, adminUserId, `Creación de nuevo rol: ${name.trim()}`, 'roles', null, `Rol ID ${nextId}`);
+    await client.query('COMMIT');
     return res.json({ success: true, roleId: nextId });
   } catch (err) {
-    return sendError(res, err, 'Admin create role error:', 'No fue posible crear el rol.');
+    await client.query('ROLLBACK');
+    console.error('Admin create role error:', err);
+    return res.status(500).json({ error: 'No fue posible crear el rol.' });
+  } finally {
+    client.release();
   }
 };
 
 export const updateRole = async (req, res) => {
   const roleId = parseInt(req.params.roleId, 10);
-  const { name, description, is_active } = req.body || {};
-  const adminUserId = actorId(req);
-
+  const { adminUserId, name, description, is_active } = req.body || {};
+  const client = await pool.connect();
   try {
-    await withTransaction(pool, async (client) => {
-      await exigirAdminGeneral(client, adminUserId);
+    await client.query('BEGIN');
+    if (!(await assertAdminGeneral(client, adminUserId))) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Acceso denegado.' });
+    }
 
-      const oldRes = await client.query('SELECT name, description, is_active FROM public.roles WHERE role_id = $1', [roleId]);
-      if (oldRes.rows.length === 0) {
-        throw new HttpError(404, 'Rol no encontrado.');
-      }
+    const oldRes = await client.query('SELECT name, description, is_active FROM public.roles WHERE role_id = $1', [roleId]);
+    if (oldRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Rol no encontrado.' });
+    }
 
-      const oldRole = oldRes.rows[0];
-      const newName = name ? name.trim() : oldRole.name;
-      const newDesc = description !== undefined ? (description ? description.trim() : null) : oldRole.description;
-      const newActive = is_active !== undefined ? Boolean(is_active) : oldRole.is_active;
+    const oldRole = oldRes.rows[0];
+    const newName = name ? name.trim() : oldRole.name;
+    const newDesc = description !== undefined ? (description ? description.trim() : null) : oldRole.description;
+    const newActive = is_active !== undefined ? Boolean(is_active) : oldRole.is_active;
 
-      await client.query(`
-        UPDATE public.roles
-        SET name = $1, description = $2, is_active = $3
-        WHERE role_id = $4;
-      `, [newName, newDesc, newActive, roleId]);
+    await client.query(`
+      UPDATE public.roles 
+      SET name = $1, description = $2, is_active = $3
+      WHERE role_id = $4;
+    `, [newName, newDesc, newActive, roleId]);
 
-      await logAdminTrace(
-        client, adminUserId,
-        `Modificación de rol ID ${roleId}: ${newName}`,
-        'roles',
-        JSON.stringify(oldRole),
-        JSON.stringify({ name: newName, description: newDesc, is_active: newActive })
-      );
-    });
+    await logAdminTrace(
+      client, adminUserId,
+      `Modificación de rol ID ${roleId}: ${newName}`,
+      'roles',
+      JSON.stringify(oldRole),
+      JSON.stringify({ name: newName, description: newDesc, is_active: newActive })
+    );
 
+    await client.query('COMMIT');
     return res.json({ success: true });
   } catch (err) {
-    return sendError(res, err, 'Admin update role error:', 'No fue posible actualizar el rol.');
+    await client.query('ROLLBACK');
+    console.error('Admin update role error:', err);
+    return res.status(500).json({ error: 'No fue posible actualizar el rol.' });
+  } finally {
+    client.release();
   }
 };
 
 export const toggleRoleStatus = async (req, res) => {
   const roleId = parseInt(req.params.roleId, 10);
-  const { is_active } = req.body || {};
-  const adminUserId = actorId(req);
-
+  const { adminUserId, is_active } = req.body || {};
+  const client = await pool.connect();
   try {
-    const nextState = await withTransaction(pool, async (client) => {
-      await exigirAdminGeneral(client, adminUserId);
+    await client.query('BEGIN');
+    if (!(await assertAdminGeneral(client, adminUserId))) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Acceso denegado.' });
+    }
 
-      const estado = Boolean(is_active);
-      await client.query('UPDATE public.roles SET is_active = $1 WHERE role_id = $2', [estado, roleId]);
+    const nextState = Boolean(is_active);
+    await client.query('UPDATE public.roles SET is_active = $1 WHERE role_id = $2', [nextState, roleId]);
 
-      await logAdminTrace(
-        client, adminUserId,
-        `Cambio de estado del rol ID ${roleId}: ${estado ? 'Activo' : 'Inactivo'}`,
-        'roles.is_active',
-        !estado ? 'Activo' : 'Inactivo',
-        estado ? 'Activo' : 'Inactivo'
-      );
+    await logAdminTrace(
+      client, adminUserId,
+      `Cambio de estado del rol ID ${roleId}: ${nextState ? 'Activo' : 'Inactivo'}`,
+      'roles.is_active',
+      !nextState ? 'Activo' : 'Inactivo',
+      nextState ? 'Activo' : 'Inactivo'
+    );
 
-      return estado;
-    });
-
+    await client.query('COMMIT');
     return res.json({ success: true, is_active: nextState });
   } catch (err) {
-    return sendError(res, err, 'Admin toggle role status error:', 'No fue posible cambiar el estado del rol.');
+    await client.query('ROLLBACK');
+    console.error('Admin toggle role status error:', err);
+    return res.status(500).json({ error: 'No fue posible cambiar el estado del rol.' });
+  } finally {
+    client.release();
   }
 };
 
-/* ── PERMISOS ─────────────────────────────────────────────────────────────── */
-
 export const getPermissions = async (req, res) => {
-  const adminUserId = actorId(req);
+  const { adminUserId } = req.query;
+  const client = await pool.connect();
   try {
-    await exigirAdminGeneral(pool, adminUserId);
+    if (!(await assertAdminGeneral(client, adminUserId))) {
+      return res.status(403).json({ error: 'Acceso denegado.' });
+    }
 
-    const result = await pool.query(`
+    const result = await client.query(`
       SELECT p.permission_id, p.name, p.description, COALESCE(p.is_active, true) AS is_active
       FROM public.permissions p
       ORDER BY p.permission_id;
@@ -390,190 +404,212 @@ export const getPermissions = async (req, res) => {
 
     return res.json({ permissions: result.rows });
   } catch (err) {
-    return sendError(res, err, 'Admin get permissions error:', 'No fue posible consultar los permisos.');
+    console.error('Admin get permissions error:', err);
+    return res.status(500).json({ error: 'No fue posible consultar los permisos.' });
+  } finally {
+    client.release();
   }
 };
 
 export const createPermission = async (req, res) => {
-  const { name, description, is_active } = req.body || {};
-  const adminUserId = actorId(req);
+  const { adminUserId, name, description, is_active } = req.body || {};
   if (!name || !name.trim()) return res.status(400).json({ error: 'El nombre del permiso es obligatorio.' });
 
+  const client = await pool.connect();
   try {
-    const nextId = await withTransaction(pool, async (client) => {
-      await exigirAdminGeneral(client, adminUserId);
+    await client.query('BEGIN');
+    if (!(await assertAdminGeneral(client, adminUserId))) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Acceso denegado.' });
+    }
 
-      // El identificador lo asigna la secuencia de la tabla, no la
-      // aplicacion. Antes se calculaba con MAX(permission_id)+1, que es una
-      // condicion de carrera: dos altas simultaneas leen el mismo maximo y
-      // la segunda choca contra la clave primaria. La secuencia reparte
-      // identificadores sin carreras porque es la base de datos quien
-      // serializa. (La secuencia de esta tabla estaba desfasada; la
-      // sincroniza backend/scripts/optimize_database.js.)
-      const insertado = await client.query(`
-        INSERT INTO public.permissions (name, description, is_active)
-        VALUES ($1, $2, $3)
-        RETURNING permission_id;
-      `, [name.trim(), description ? description.trim() : null, is_active !== undefined ? Boolean(is_active) : true]);
-      const permissionId = insertado.rows[0].permission_id;
+    const maxRes = await client.query('SELECT COALESCE(MAX(permission_id), 0) + 1 AS next_id FROM public.permissions');
+    const nextId = maxRes.rows[0].next_id;
 
-      await logAdminTrace(client, adminUserId, `Creación de nuevo permiso: ${name.trim()}`, 'permissions', null, `Permiso ID ${permissionId}`);
-      return permissionId;
-    });
+    await client.query(`
+      INSERT INTO public.permissions (permission_id, name, description, is_active)
+      VALUES ($1, $2, $3, $4);
+    `, [nextId, name.trim(), description ? description.trim() : null, is_active !== undefined ? Boolean(is_active) : true]);
 
+    await logAdminTrace(client, adminUserId, `Creación de nuevo permiso: ${name.trim()}`, 'permissions', null, `Permiso ID ${nextId}`);
+    await client.query('COMMIT');
     return res.json({ success: true, permissionId: nextId });
   } catch (err) {
-    return sendError(res, err, 'Admin create permission error:', 'No fue posible crear el permiso.');
+    await client.query('ROLLBACK');
+    console.error('Admin create permission error:', err);
+    return res.status(500).json({ error: 'No fue posible crear el permiso.' });
+  } finally {
+    client.release();
   }
 };
 
 export const updatePermission = async (req, res) => {
   const permId = parseInt(req.params.permissionId, 10);
-  const { name, description, is_active } = req.body || {};
-  const adminUserId = actorId(req);
-
+  const { adminUserId, name, description, is_active } = req.body || {};
+  const client = await pool.connect();
   try {
-    await withTransaction(pool, async (client) => {
-      await exigirAdminGeneral(client, adminUserId);
+    await client.query('BEGIN');
+    if (!(await assertAdminGeneral(client, adminUserId))) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Acceso denegado.' });
+    }
 
-      const oldRes = await client.query('SELECT name, description, is_active FROM public.permissions WHERE permission_id = $1', [permId]);
-      if (oldRes.rows.length === 0) {
-        throw new HttpError(404, 'Permiso no encontrado.');
-      }
+    const oldRes = await client.query('SELECT name, description, is_active FROM public.permissions WHERE permission_id = $1', [permId]);
+    if (oldRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Permiso no encontrado.' });
+    }
 
-      const oldPerm = oldRes.rows[0];
-      const newName = name ? name.trim() : oldPerm.name;
-      const newDesc = description !== undefined ? (description ? description.trim() : null) : oldPerm.description;
-      const newActive = is_active !== undefined ? Boolean(is_active) : oldPerm.is_active;
+    const oldPerm = oldRes.rows[0];
+    const newName = name ? name.trim() : oldPerm.name;
+    const newDesc = description !== undefined ? (description ? description.trim() : null) : oldPerm.description;
+    const newActive = is_active !== undefined ? Boolean(is_active) : oldPerm.is_active;
 
-      await client.query(`
-        UPDATE public.permissions
-        SET name = $1, description = $2, is_active = $3
-        WHERE permission_id = $4;
-      `, [newName, newDesc, newActive, permId]);
+    await client.query(`
+      UPDATE public.permissions 
+      SET name = $1, description = $2, is_active = $3
+      WHERE permission_id = $4;
+    `, [newName, newDesc, newActive, permId]);
 
-      await logAdminTrace(
-        client, adminUserId,
-        `Modificación de permiso ID ${permId}: ${newName}`,
-        'permissions',
-        JSON.stringify(oldPerm),
-        JSON.stringify({ name: newName, description: newDesc, is_active: newActive })
-      );
-    });
+    await logAdminTrace(
+      client, adminUserId,
+      `Modificación de permiso ID ${permId}: ${newName}`,
+      'permissions',
+      JSON.stringify(oldPerm),
+      JSON.stringify({ name: newName, description: newDesc, is_active: newActive })
+    );
 
+    await client.query('COMMIT');
     return res.json({ success: true });
   } catch (err) {
-    return sendError(res, err, 'Admin update permission error:', 'No fue posible actualizar el permiso.');
+    await client.query('ROLLBACK');
+    console.error('Admin update permission error:', err);
+    return res.status(500).json({ error: 'No fue posible actualizar el permiso.' });
+  } finally {
+    client.release();
   }
 };
 
 export const assignRolePermissions = async (req, res) => {
   const roleId = parseInt(req.params.roleId, 10);
-  const { permissionIds } = req.body || {};
-  const adminUserId = actorId(req);
-
+  const { adminUserId, permissionIds } = req.body || {};
+  const client = await pool.connect();
   try {
-    await withTransaction(pool, async (client) => {
-      await exigirAdminGeneral(client, adminUserId);
+    await client.query('BEGIN');
+    if (!(await assertAdminGeneral(client, adminUserId))) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Acceso denegado.' });
+    }
 
-      const roleRes = await client.query('SELECT name FROM public.roles WHERE role_id = $1', [roleId]);
-      const roleName = roleRes.rows[0]?.name || `Rol ${roleId}`;
+    const roleRes = await client.query('SELECT name FROM public.roles WHERE role_id = $1', [roleId]);
+    const roleName = roleRes.rows[0]?.name || `Rol ${roleId}`;
 
-      const oldPermsRes = await client.query(`
-        SELECT p.name FROM public.role_permissions rp JOIN public.permissions p ON p.permission_id = rp.permission_id WHERE rp.role_id = $1
-      `, [roleId]);
-      const oldPermsText = oldPermsRes.rows.map(p => p.name).join(', ') || 'Sin permisos';
+    const oldPermsRes = await client.query(`
+      SELECT p.name FROM public.role_permissions rp JOIN public.permissions p ON p.permission_id = rp.permission_id WHERE rp.role_id = $1
+    `, [roleId]);
+    const oldPermsText = oldPermsRes.rows.map(p => p.name).join(', ') || 'Sin permisos';
 
-      await client.query('DELETE FROM public.role_permissions WHERE role_id = $1', [roleId]);
+    await client.query('DELETE FROM public.role_permissions WHERE role_id = $1', [roleId]);
 
-      if (Array.isArray(permissionIds)) {
-        for (const pId of permissionIds) {
-          await client.query(`
-            INSERT INTO public.role_permissions (role_id, permission_id)
-            VALUES ($1, $2)
-            ON CONFLICT DO NOTHING;
-          `, [roleId, parseInt(pId, 10)]);
-        }
+    if (Array.isArray(permissionIds)) {
+      for (const pId of permissionIds) {
+        await client.query(`
+          INSERT INTO public.role_permissions (role_id, permission_id)
+          VALUES ($1, $2)
+          ON CONFLICT DO NOTHING;
+        `, [roleId, parseInt(pId, 10)]);
       }
+    }
 
-      const newPermsRes = await client.query(`
-        SELECT p.name FROM public.role_permissions rp JOIN public.permissions p ON p.permission_id = rp.permission_id WHERE rp.role_id = $1
-      `, [roleId]);
-      const newPermsText = newPermsRes.rows.map(p => p.name).join(', ') || 'Sin permisos';
+    const newPermsRes = await client.query(`
+      SELECT p.name FROM public.role_permissions rp JOIN public.permissions p ON p.permission_id = rp.permission_id WHERE rp.role_id = $1
+    `, [roleId]);
+    const newPermsText = newPermsRes.rows.map(p => p.name).join(', ') || 'Sin permisos';
 
-      await logAdminTrace(
-        client, adminUserId,
-        `Asignación de permisos al rol: ${roleName}`,
-        'role_permissions',
-        oldPermsText,
-        newPermsText
-      );
-    });
+    await logAdminTrace(
+      client, adminUserId,
+      `Asignación de permisos al rol: ${roleName}`,
+      'role_permissions',
+      oldPermsText,
+      newPermsText
+    );
 
+    await client.query('COMMIT');
     return res.json({ success: true });
   } catch (err) {
-    return sendError(res, err, 'Admin assign role permissions error:', 'No fue posible actualizar los permisos del rol.');
+    await client.query('ROLLBACK');
+    console.error('Admin assign role permissions error:', err);
+    return res.status(500).json({ error: 'No fue posible actualizar los permisos del rol.' });
+  } finally {
+    client.release();
   }
 };
 
 export const assignUserPermissions = async (req, res) => {
   const targetUserId = req.params.userId;
-  const { permissionIds } = req.body || {};
-  const adminUserId = actorId(req);
-
+  const { adminUserId, permissionIds } = req.body || {};
+  const client = await pool.connect();
   try {
-    await withTransaction(pool, async (client) => {
-      await exigirAdminGeneral(client, adminUserId);
+    await client.query('BEGIN');
+    if (!(await assertAdminGeneral(client, adminUserId))) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Acceso denegado.' });
+    }
 
-      const userRes = await client.query('SELECT full_name FROM public.users WHERE user_id = $1', [targetUserId]);
-      const userName = userRes.rows[0]?.full_name || targetUserId;
+    const userRes = await client.query('SELECT full_name FROM public.users WHERE user_id = $1', [targetUserId]);
+    const userName = userRes.rows[0]?.full_name || targetUserId;
 
-      const oldPermsRes = await client.query(`
-        SELECT p.name FROM public.user_permissions up JOIN public.permissions p ON p.permission_id = up.permission_id WHERE up.user_id = $1
-      `, [targetUserId]);
-      const oldPermsText = oldPermsRes.rows.map(p => p.name).join(', ') || 'Sin permisos directos';
+    const oldPermsRes = await client.query(`
+      SELECT p.name FROM public.user_permissions up JOIN public.permissions p ON p.permission_id = up.permission_id WHERE up.user_id = $1
+    `, [targetUserId]);
+    const oldPermsText = oldPermsRes.rows.map(p => p.name).join(', ') || 'Sin permisos directos';
 
-      await client.query('DELETE FROM public.user_permissions WHERE user_id = $1', [targetUserId]);
+    await client.query('DELETE FROM public.user_permissions WHERE user_id = $1', [targetUserId]);
 
-      if (Array.isArray(permissionIds)) {
-        for (const pId of permissionIds) {
-          await client.query(`
-            INSERT INTO public.user_permissions (user_id, permission_id)
-            VALUES ($1, $2)
-            ON CONFLICT (user_id, permission_id) DO NOTHING;
-          `, [targetUserId, parseInt(pId, 10)]);
-        }
+    if (Array.isArray(permissionIds)) {
+      for (const pId of permissionIds) {
+        await client.query(`
+          INSERT INTO public.user_permissions (user_id, permission_id)
+          VALUES ($1, $2)
+          ON CONFLICT (user_id, permission_id) DO NOTHING;
+        `, [targetUserId, parseInt(pId, 10)]);
       }
+    }
 
-      const newPermsRes = await client.query(`
-        SELECT p.name FROM public.user_permissions up JOIN public.permissions p ON p.permission_id = up.permission_id WHERE up.user_id = $1
-      `, [targetUserId]);
-      const newPermsText = newPermsRes.rows.map(p => p.name).join(', ') || 'Sin permisos directos';
+    const newPermsRes = await client.query(`
+      SELECT p.name FROM public.user_permissions up JOIN public.permissions p ON p.permission_id = up.permission_id WHERE up.user_id = $1
+    `, [targetUserId]);
+    const newPermsText = newPermsRes.rows.map(p => p.name).join(', ') || 'Sin permisos directos';
 
-      await logAdminTrace(
-        client, adminUserId,
-        `Asignación directa de permisos al usuario: ${userName}`,
-        'user_permissions',
-        oldPermsText,
-        newPermsText
-      );
-    });
+    await logAdminTrace(
+      client, adminUserId,
+      `Asignación directa de permisos al usuario: ${userName}`,
+      'user_permissions',
+      oldPermsText,
+      newPermsText
+    );
 
+    await client.query('COMMIT');
     return res.json({ success: true });
   } catch (err) {
-    return sendError(res, err, 'Admin assign user permissions error:', 'No fue posible actualizar los permisos del usuario.');
+    await client.query('ROLLBACK');
+    console.error('Admin assign user permissions error:', err);
+    return res.status(500).json({ error: 'No fue posible actualizar los permisos del usuario.' });
+  } finally {
+    client.release();
   }
 };
 
-/* ── PROGRAMAS ACADÉMICOS ─────────────────────────────────────────────────── */
-
 export const getPrograms = async (req, res) => {
-  const adminUserId = actorId(req);
+  const { adminUserId } = req.query;
+  const client = await pool.connect();
   try {
-    await exigirAdminGeneral(pool, adminUserId);
+    if (!(await assertAdminGeneral(client, adminUserId))) {
+      return res.status(403).json({ error: 'Acceso denegado.' });
+    }
 
     const [programs, faculties, modalities] = await Promise.all([
-      pool.query(`
+      client.query(`
         SELECT p.program_id, p.name, p.faculty_id, p.modality_id, f.name AS faculty_name, m.name AS modality_name,
                COUNT(DISTINCT u.user_id)::int AS user_count
         FROM public.programs p
@@ -583,8 +619,8 @@ export const getPrograms = async (req, res) => {
         GROUP BY p.program_id, p.name, p.faculty_id, p.modality_id, f.name, m.name
         ORDER BY p.name;
       `),
-      pool.query('SELECT faculty_id, name FROM public.faculties ORDER BY name'),
-      pool.query('SELECT modality_id, name FROM public.modalities ORDER BY name')
+      client.query('SELECT faculty_id, name FROM public.faculties ORDER BY name'),
+      client.query('SELECT modality_id, name FROM public.modalities ORDER BY name')
     ]);
 
     return res.json({
@@ -593,90 +629,99 @@ export const getPrograms = async (req, res) => {
       modalities: modalities.rows
     });
   } catch (err) {
-    return sendError(res, err, 'Admin get programs error:', 'No fue posible consultar los programas académicos.');
+    console.error('Admin get programs error:', err);
+    return res.status(500).json({ error: 'No fue posible consultar los programas académicos.' });
+  } finally {
+    client.release();
   }
 };
 
 export const createProgram = async (req, res) => {
-  const { name, faculty_id, modality_id } = req.body || {};
-  const adminUserId = actorId(req);
+  const { adminUserId, name, faculty_id, modality_id } = req.body || {};
   if (!name || !name.trim()) return res.status(400).json({ error: 'El nombre del programa es obligatorio.' });
 
+  const client = await pool.connect();
   try {
-    const nextId = await withTransaction(pool, async (client) => {
-      await exigirAdminGeneral(client, adminUserId);
+    await client.query('BEGIN');
+    if (!(await assertAdminGeneral(client, adminUserId))) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Acceso denegado.' });
+    }
 
-      // El identificador lo asigna la secuencia de la tabla, no la
-      // aplicacion. Antes se calculaba con MAX(program_id)+1, que es una
-      // condicion de carrera: dos altas simultaneas leen el mismo maximo y
-      // la segunda choca contra la clave primaria. La secuencia reparte
-      // identificadores sin carreras porque es la base de datos quien
-      // serializa. (La secuencia de esta tabla estaba desfasada; la
-      // sincroniza backend/scripts/optimize_database.js.)
-      const insertado = await client.query(`
-        INSERT INTO public.programs (name, faculty_id, modality_id)
-        VALUES ($1, $2, $3)
-        RETURNING program_id;
-      `, [name.trim(), faculty_id ? parseInt(faculty_id, 10) : null, modality_id ? parseInt(modality_id, 10) : null]);
-      const programId = insertado.rows[0].program_id;
+    const maxRes = await client.query('SELECT COALESCE(MAX(program_id), 0) + 1 AS next_id FROM public.programs');
+    const nextId = maxRes.rows[0].next_id;
 
-      await logAdminTrace(client, adminUserId, `Creación de programa académico: ${name.trim()}`, 'programs', null, `Programa ID ${programId}`);
-      return programId;
-    });
+    await client.query(`
+      INSERT INTO public.programs (program_id, name, faculty_id, modality_id)
+      VALUES ($1, $2, $3, $4);
+    `, [nextId, name.trim(), faculty_id ? parseInt(faculty_id, 10) : null, modality_id ? parseInt(modality_id, 10) : null]);
 
+    await logAdminTrace(client, adminUserId, `Creación de programa académico: ${name.trim()}`, 'programs', null, `Programa ID ${nextId}`);
+    await client.query('COMMIT');
     return res.json({ success: true, programId: nextId });
   } catch (err) {
-    return sendError(res, err, 'Admin create program error:', 'No fue posible crear el programa académico.');
+    await client.query('ROLLBACK');
+    console.error('Admin create program error:', err);
+    return res.status(500).json({ error: 'No fue posible crear el programa académico.' });
+  } finally {
+    client.release();
   }
 };
 
 export const updateProgram = async (req, res) => {
   const progId = parseInt(req.params.programId, 10);
-  const { name, faculty_id, modality_id } = req.body || {};
-  const adminUserId = actorId(req);
-
+  const { adminUserId, name, faculty_id, modality_id } = req.body || {};
+  const client = await pool.connect();
   try {
-    await withTransaction(pool, async (client) => {
-      await exigirAdminGeneral(client, adminUserId);
+    await client.query('BEGIN');
+    if (!(await assertAdminGeneral(client, adminUserId))) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Acceso denegado.' });
+    }
 
-      const oldRes = await client.query('SELECT name, faculty_id, modality_id FROM public.programs WHERE program_id = $1', [progId]);
-      if (oldRes.rows.length === 0) {
-        throw new HttpError(404, 'Programa académico no encontrado.');
-      }
+    const oldRes = await client.query('SELECT name, faculty_id, modality_id FROM public.programs WHERE program_id = $1', [progId]);
+    if (oldRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Programa académico no encontrado.' });
+    }
 
-      const oldProg = oldRes.rows[0];
-      const newName = name ? name.trim() : oldProg.name;
-      const facId = faculty_id !== undefined ? (faculty_id ? parseInt(faculty_id, 10) : null) : oldProg.faculty_id;
-      const modId = modality_id !== undefined ? (modality_id ? parseInt(modality_id, 10) : null) : oldProg.modality_id;
+    const oldProg = oldRes.rows[0];
+    const newName = name ? name.trim() : oldProg.name;
+    const facId = faculty_id !== undefined ? (faculty_id ? parseInt(faculty_id, 10) : null) : oldProg.faculty_id;
+    const modId = modality_id !== undefined ? (modality_id ? parseInt(modality_id, 10) : null) : oldProg.modality_id;
 
-      await client.query(`
-        UPDATE public.programs
-        SET name = $1, faculty_id = $2, modality_id = $3
-        WHERE program_id = $4;
-      `, [newName, facId, modId, progId]);
+    await client.query(`
+      UPDATE public.programs 
+      SET name = $1, faculty_id = $2, modality_id = $3
+      WHERE program_id = $4;
+    `, [newName, facId, modId, progId]);
 
-      await logAdminTrace(
-        client, adminUserId,
-        `Modificación de programa académico ID ${progId}: ${newName}`,
-        'programs',
-        JSON.stringify(oldProg),
-        JSON.stringify({ name: newName, faculty_id: facId, modality_id: modId })
-      );
-    });
+    await logAdminTrace(
+      client, adminUserId,
+      `Modificación de programa académico ID ${progId}: ${newName}`,
+      'programs',
+      JSON.stringify(oldProg),
+      JSON.stringify({ name: newName, faculty_id: facId, modality_id: modId })
+    );
 
+    await client.query('COMMIT');
     return res.json({ success: true });
   } catch (err) {
-    return sendError(res, err, 'Admin update program error:', 'No fue posible actualizar el programa académico.');
+    await client.query('ROLLBACK');
+    console.error('Admin update program error:', err);
+    return res.status(500).json({ error: 'No fue posible actualizar el programa académico.' });
+  } finally {
+    client.release();
   }
 };
 
-/* ── AUDITORÍA ────────────────────────────────────────────────────────────── */
-
 export const getAuditHistory = async (req, res) => {
-  const { programId } = req.query;
-  const adminUserId = actorId(req);
+  const { adminUserId, programId } = req.query;
+  const client = await pool.connect();
   try {
-    await exigirAdminGeneral(pool, adminUserId);
+    if (!(await assertAdminGeneral(client, adminUserId))) {
+      return res.status(403).json({ error: 'Acceso denegado.' });
+    }
 
     let queryText = `
       SELECT h.history_id, h.description, h.modified_field, h.old_value, h.new_value, h.change_type, h.changed_at,
@@ -703,9 +748,12 @@ export const getAuditHistory = async (req, res) => {
       LIMIT 100;
     `;
 
-    const result = await pool.query(queryText, params);
+    const result = await client.query(queryText, params);
     return res.json({ history: result.rows });
   } catch (err) {
-    return sendError(res, err, 'Admin get audit history error:', 'No fue posible consultar el historial de auditoría.');
+    console.error('Admin get audit history error:', err);
+    return res.status(500).json({ error: 'No fue posible consultar el historial de auditoría.' });
+  } finally {
+    client.release();
   }
 };
