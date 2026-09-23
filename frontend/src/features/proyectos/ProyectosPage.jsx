@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  BarChart3, BookOpen, ChevronDown, Clock, Download, ExternalLink, Eye, FilePlus2, Filter, History, Pencil,
-  Settings, Trash2, Upload, User, Users, X,
+  ChevronDown,
+  Clock,
+  Download,
+  ExternalLink,
+  FilePlus2,
+  Filter,
+  History,
+  Pencil,
+  User,
+  X,
 } from 'lucide-react';
 import DashboardLayout from '../../components/layout/DashboardLayout';
 import { useAuth } from '../../context/AuthContext';
@@ -764,8 +772,8 @@ export function ProyectosPage() {
 
             <form className="form-grid" onSubmit={handleSaveProject}>
               <div className="field">
-                <label className="field-label">Título del proyecto *</label>
-                <input
+                <label className="field-label" htmlFor="proyectos-page-campo-1">Título del proyecto *</label>
+                <input id="proyectos-page-campo-1"
                   type="text"
                   value={formData.title}
                   onChange={handleFormChange('title')}
@@ -775,8 +783,8 @@ export function ProyectosPage() {
                 />
               </div>
               <div className="field">
-                <label className="field-label">Código (Autogenerado)</label>
-                <input
+                <label className="field-label" htmlFor="proyectos-page-campo-2">Código (Autogenerado)</label>
+                <input id="proyectos-page-campo-2"
                   type="text"
                   value={isGeneratingCode ? 'Generando...' : formData.code}
                   readOnly
@@ -786,9 +794,9 @@ export function ProyectosPage() {
                 />
               </div>
               <div className="field">
-                <label className="field-label">Estado *</label>
+                <label className="field-label" htmlFor="proyectos-page-campo-3">Estado *</label>
                 <div className="select-wrap">
-                  <select
+                  <select id="proyectos-page-campo-3"
                     className="field-input field-select"
                     value={formData.statusId}
                     onChange={handleFormChange('statusId')}
@@ -805,9 +813,9 @@ export function ProyectosPage() {
                 </div>
               </div>
               <div className="field">
-                <label className="field-label">Modalidad *</label>
+                <label className="field-label" htmlFor="proyectos-page-campo-4">Modalidad *</label>
                 <div className="select-wrap">
-                  <select
+                  <select id="proyectos-page-campo-4"
                     className="field-input field-select"
                     value={formData.modalityId}
                     onChange={handleFormChange('modalityId')}
@@ -824,9 +832,9 @@ export function ProyectosPage() {
                 </div>
               </div>
               <div className="field">
-                <label className="field-label">Línea de investigación</label>
+                <label className="field-label" htmlFor="proyectos-page-campo-5">Línea de investigación</label>
                 <div className="select-wrap">
-                  <select
+                  <select id="proyectos-page-campo-5"
                     className="field-input field-select"
                     value={formData.lineId}
                     onChange={handleFormChange('lineId')}
@@ -842,9 +850,9 @@ export function ProyectosPage() {
                 </div>
               </div>
               <div className="field">
-                <label className="field-label">Sublínea</label>
+                <label className="field-label" htmlFor="proyectos-page-campo-6">Sublínea</label>
                 <div className="select-wrap">
-                  <select
+                  <select id="proyectos-page-campo-6"
                     className="field-input field-select"
                     value={formData.sublineId}
                     onChange={handleFormChange('sublineId')}
@@ -864,8 +872,8 @@ export function ProyectosPage() {
                 </div>
               </div>
               <div className="field form-span">
-                <label className="field-label">Enlace de carta de presentación</label>
-                <input
+                <label className="field-label" htmlFor="proyectos-page-campo-7">Enlace de carta de presentación</label>
+                <input id="proyectos-page-campo-7"
                   type="url"
                   value={formData.letterLink}
                   onChange={handleFormChange('letterLink')}
@@ -875,9 +883,9 @@ export function ProyectosPage() {
               </div>
 
               <div className="field form-span">
-                <label className="field-label">Co-autores del proyecto (opcional)</label>
+                <label className="field-label" htmlFor="proyectos-page-campo-8">Co-autores del proyecto (opcional)</label>
                 <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-                  <input
+                  <input id="proyectos-page-campo-8"
                     type="email"
                     value={newCoauthorEmail}
                     onChange={(e) => { setNewCoauthorEmail(e.target.value); setFormError(''); }}
@@ -970,8 +978,8 @@ export function ProyectosPage() {
           </div>
           <div className="filters-grid">
             <div className="field">
-              <label className="field-label">Buscar</label>
-              <input
+              <label className="field-label" htmlFor="proyectos-page-campo-9">Buscar</label>
+              <input id="proyectos-page-campo-9"
                 type="text"
                 value={filters.search}
                 onChange={handleFilterChange('search')}
@@ -980,9 +988,9 @@ export function ProyectosPage() {
               />
             </div>
             <div className="field">
-              <label className="field-label">Estado</label>
+              <label className="field-label" htmlFor="proyectos-page-campo-10">Estado</label>
               <div className="select-wrap">
-                <select
+                <select id="proyectos-page-campo-10"
                   className="field-input field-select"
                   value={filters.status}
                   onChange={handleFilterChange('status')}
@@ -998,9 +1006,9 @@ export function ProyectosPage() {
               </div>
             </div>
             <div className="field">
-              <label className="field-label">Modalidad</label>
+              <label className="field-label" htmlFor="proyectos-page-campo-11">Modalidad</label>
               <div className="select-wrap">
-                <select
+                <select id="proyectos-page-campo-11"
                   className="field-input field-select"
                   value={filters.modality}
                   onChange={handleFilterChange('modality')}
@@ -1016,9 +1024,9 @@ export function ProyectosPage() {
               </div>
             </div>
             <div className="field">
-              <label className="field-label">Año</label>
+              <label className="field-label" htmlFor="proyectos-page-campo-12">Año</label>
               <div className="select-wrap">
-                <select
+                <select id="proyectos-page-campo-12"
                   className="field-input field-select"
                   value={filters.year}
                   onChange={handleFilterChange('year')}
@@ -1313,7 +1321,6 @@ export function ProyectosPage() {
         />
         )}
       </div>
-
 
       {showCrearModal && (
         <CrearProyecto

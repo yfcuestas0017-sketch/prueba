@@ -97,7 +97,7 @@
           overflow-y: scroll;
           overflow-x: hidden;
           scrollbar-width: thin;
-          scrollbar-color: var(--accent-primary, #1F5BA3) var(--bg-secondary, #f1f5f9);
+          scrollbar-color: var(--accent-primary, var(--accent-primary)) var(--bg-secondary, #f1f5f9);
         }
 
         .epm-body::-webkit-scrollbar {
@@ -108,7 +108,7 @@
           border-radius: 4px;
         }
         .epm-body::-webkit-scrollbar-thumb {
-          background: var(--accent-primary, #1F5BA3);
+          background: var(--accent-primary);
           border-radius: 4px;
         }
         .epm-body::-webkit-scrollbar-thumb:hover {
@@ -186,46 +186,6 @@
           pointer-events: none;
         }
 
-        .epm-form-actions {
-          display: flex;
-          justify-content: flex-end;
-          gap: 10px;
-          margin-top: 18px;
-        }
-
-        /* ── BUTTONS ── */
-        .epm-btn-primary {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          padding: 9px 18px;
-          background: var(--accent-primary);
-          color: #fff;
-          border: none;
-          border-radius: var(--border-radius-sm);
-          font-size: 0.84rem;
-          font-weight: 600;
-          cursor: pointer;
-          transition: opacity 0.15s;
-        }
-        .epm-btn-primary:hover:not(:disabled) { opacity: 0.87; }
-        .epm-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-
-        .epm-btn-ghost {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          padding: 9px 18px;
-          background: transparent;
-          color: var(--text-secondary);
-          border: 1px solid var(--border-color);
-          border-radius: var(--border-radius-sm);
-          font-size: 0.84rem;
-          font-weight: 600;
-          cursor: pointer;
-          transition: all 0.15s;
-        }
-        .epm-btn-ghost:hover { background: var(--bg-primary); color: var(--text-primary); }
 
         .epm-add-btn {
           padding: 6px 12px;
@@ -446,7 +406,7 @@
           gap: 8px;
           padding: 9px 18px;
           border-radius: var(--border-radius-sm, 8px);
-          background: var(--accent-primary, #1F5BA3);
+          background: var(--accent-primary);
           color: #ffffff;
           font-size: 0.86rem;
           font-weight: 600;
@@ -455,7 +415,7 @@
           transition: background 0.15s ease, transform 0.1s ease;
         }
         .epm-btn-primary:hover:not(:disabled) {
-          background: #17457a;
+          background: var(--accent-primary-hover);
           transform: translateY(-1px);
         }
         .epm-btn-primary:disabled {

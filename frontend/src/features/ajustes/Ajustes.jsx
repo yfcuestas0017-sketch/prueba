@@ -4,19 +4,14 @@ import {
   AlertCircle,
   Award,
   BookOpen,
-  Calendar,
   CheckCircle2,
   ChevronDown,
-  ExternalLink,
   GraduationCap,
-  Layers,
   Lock,
   Mail,
   Pencil,
   Save,
-  Tag,
   User,
-  UserCheck,
   X,
 } from 'lucide-react';
 import DashboardLayout from '../../components/layout/DashboardLayout';
@@ -316,8 +311,8 @@ export default function AjustesPage() {
 
                 <form onSubmit={handleSave} className="edit-form">
                   <div className="field">
-                    <label className="field-label">Nombre completo *</label>
-                    <input
+                    <label className="field-label" htmlFor="ajustes-campo-1">Nombre completo *</label>
+                    <input id="ajustes-campo-1"
                       type="text"
                       required
                       className="field-input"
@@ -329,11 +324,11 @@ export default function AjustesPage() {
                   </div>
 
                   <div className="field">
-                    <label className="field-label">
+                    <label className="field-label" htmlFor="ajustes-campo-2">
                       Correo electrónico
                       <span className="field-lock">🔒 No editable</span>
                     </label>
-                    <input
+                    <input id="ajustes-campo-2"
                       type="email"
                       className="field-input field-input--readonly"
                       value={displayEmail}
@@ -343,9 +338,9 @@ export default function AjustesPage() {
                   </div>
 
                   <div className="field">
-                    <label className="field-label">Programa académico</label>
+                    <label className="field-label" htmlFor="ajustes-campo-3">Programa académico</label>
                     <div className="select-wrap">
-                      <select
+                      <select id="ajustes-campo-3"
                         className="field-input field-select"
                         value={form.programId}
                         onChange={(e) => setForm((p) => ({ ...p, programId: e.target.value }))}

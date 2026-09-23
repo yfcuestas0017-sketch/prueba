@@ -5,26 +5,16 @@ import {
   UserCheck,
   Key,
   Award,
-  BookOpen,
-  Settings,
-  Plus,
-  Search,
-  Edit3,
-  CheckCircle2,
-  XCircle,
   Filter,
   History,
-  X,
-  Lock,
-  RefreshCw,
   Building,
-  Check,
   Database,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useProgramFilter } from '../../context/ProgramFilterContext';
 import api from '../../lib/api';
 import DashboardLayout from '../../components/layout/DashboardLayout';
+import { Modal, Button, Alert, FormField } from '../../components/ui';
 import DatabaseManagerPanel from './DatabaseManagerPanel';
 import { userIsGeneralAdmin, userIsProgramAdmin } from '../../lib/roles';
 import './AdminGeneralPage.css';
@@ -52,6 +42,11 @@ export default function AdminGeneralPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [successMsg, setSuccessMsg] = useState(null);
+  // Contraseña temporal generada por el servidor al crear un usuario sin
+  // indicar contraseña. Se muestra una sola vez y no se oculta sola: es el
+  // único momento en que se puede leer, porque en la base de datos solo
+  // queda su hash.
+  const [credencialTemporal, setCredencialTemporal] = useState(null);
 
   const [usersList, setUsersList] = useState([]);
   const [rolesList, setRolesList] = useState([]);
@@ -300,13 +295,18 @@ export default function AdminGeneralPage() {
         });
         showFeedback('Usuario actualizado con éxito.');
       } else {
-        await api.adminGeneral.createUser(adminUserId, {
+        const creado = await api.adminGeneral.createUser(adminUserId, {
           full_name: userFormData.full_name,
           email: userFormData.email,
-          password: userFormData.password || '123456',
+          // Sin contraseña indicada, el servidor genera una temporal aleatoria
+          // y la devuelve una única vez para entregársela a la persona.
+          password: userFormData.password || undefined,
           program_id: userFormData.program_id || null,
           role_ids: userFormData.role_ids,
         });
+        if (creado?.temporaryPassword) {
+          setCredencialTemporal({ email: userFormData.email, password: creado.temporaryPassword });
+        }
         showFeedback('Nuevo usuario registrado con éxito.');
       }
       setUserModalOpen(false);
@@ -580,7 +580,7 @@ export default function AdminGeneralPage() {
         </div>
 
         <div className="ag-program-filter">
-          <Filter size={18} style={{ color: 'var(--accent-primary)' }} />
+          <Filter size={18} className="ag-program-filter-icon" />
           <label htmlFor="program-filter">Filtro por Programa:</label>
           <select
             id="program-filter"
@@ -598,22 +598,33 @@ export default function AdminGeneralPage() {
         </div>
       </div>
 
-      {/* Alertas */}
+      {/* Avisos. Antes eran tres <div> teñidos a mano que no anunciaban nada a
+          la tecnología asistiva: quien usa un lector de pantalla guardaba un
+          formulario y no se enteraba del resultado. Alert decide el rol ARIA
+          según el tipo del aviso. */}
       {error && (
-        <div className="ag-audit-item" style={{ borderLeftColor: '#ef4444', background: 'rgba(239,68,68,0.1)', color: '#dc2626' }}>
-          {error}
-        </div>
+        <Alert type="error" onDismiss={() => setError(null)}>{error}</Alert>
       )}
       {successMsg && (
-        <div className="ag-audit-item" style={{ borderLeftColor: '#22c55e', background: 'rgba(34,197,94,0.1)', color: '#16a34a' }}>
-          {successMsg}
-        </div>
+        <Alert type="success" onDismiss={() => setSuccessMsg(null)}>{successMsg}</Alert>
+      )}
+      {credencialTemporal && (
+        <Alert type="warning" title={'Contraseña temporal de ' + credencialTemporal.email}>
+          <code className="ag-temp-password">{credencialTemporal.password}</code>
+          <p className="ag-temp-password-note">
+            Anótala y entrégala ahora: no se puede volver a consultar, porque en la
+            base de datos solo se guarda su cifrado.
+          </p>
+          <Button variant="secondary" size="sm" onClick={() => setCredencialTemporal(null)}>
+            Ya la anoté
+          </Button>
+        </Alert>
       )}
 
       {/* KPI Cards */}
       <div className="ag-stats-grid">
         <div className="ag-stat-card">
-          <div className="ag-stat-icon" style={{ background: 'rgba(31,91,163,0.1)', color: '#1F5BA3' }}>
+          <div className="ag-stat-icon ag-stat-icon--users">
             <Users size={20} />
           </div>
           <div className="ag-stat-info">
@@ -623,7 +634,7 @@ export default function AdminGeneralPage() {
         </div>
 
         <div className="ag-stat-card">
-          <div className="ag-stat-icon" style={{ background: 'rgba(186,24,40,0.1)', color: '#BA1828' }}>
+          <div className="ag-stat-icon ag-stat-icon--roles">
             <Award size={20} />
           </div>
           <div className="ag-stat-info">
@@ -633,7 +644,7 @@ export default function AdminGeneralPage() {
         </div>
 
         <div className="ag-stat-card">
-          <div className="ag-stat-icon" style={{ background: 'rgba(59,130,246,0.1)', color: '#3b82f6' }}>
+          <div className="ag-stat-icon ag-stat-icon--perms">
             <Key size={20} />
           </div>
           <div className="ag-stat-info">
@@ -643,7 +654,7 @@ export default function AdminGeneralPage() {
         </div>
 
         <div className="ag-stat-card">
-          <div className="ag-stat-icon" style={{ background: 'rgba(34,197,94,0.1)', color: '#16a34a' }}>
+          <div className="ag-stat-icon ag-stat-icon--programs">
             <Building size={20} />
           </div>
           <div className="ag-stat-info">
@@ -653,7 +664,7 @@ export default function AdminGeneralPage() {
         </div>
 
         <div className="ag-stat-card">
-          <div className="ag-stat-icon" style={{ background: 'rgba(245,158,11,0.1)', color: '#f59e0b' }}>
+          <div className="ag-stat-icon ag-stat-icon--audit">
             <History size={20} />
           </div>
           <div className="ag-stat-info">
@@ -665,13 +676,19 @@ export default function AdminGeneralPage() {
 
       {/* Tabs Principales */}
       <div className="ag-tabs">
-        <button className="ag-btn-primary" onClick={handleOpenCreateAdminGeneral}>
-                <ShieldCheck size={16} /> Agregar Admin General
-              </button>
-        <button className="ag-btn-primary" onClick={handleOpenCreateAdminProgram}>
-                <UserCheck size={16} /> Agregar Admin de Programa
-              </button>
-        <button className={`ag-tab-btn ${activeTab === 'database' ? 'active' : ''}`} onClick={() => setActiveTab('database')}>
+        <Button icon={ShieldCheck} onClick={handleOpenCreateAdminGeneral}>
+          Agregar Admin General
+        </Button>
+        <Button icon={UserCheck} onClick={handleOpenCreateAdminProgram}>
+          Agregar Admin de Programa
+        </Button>
+        {/* Sigue siendo un <button> nativo y no un Button: es una pestaña, no
+            una acción, y su estado activo no corresponde a ninguna variante. */}
+        <button
+          type="button"
+          className={`ag-tab-btn ${activeTab === 'database' ? 'active' : ''}`}
+          onClick={() => setActiveTab('database')}
+        >
           <Database size={18} /> Base de Datos
         </button>
       </div>
@@ -681,448 +698,446 @@ export default function AdminGeneralPage() {
         <DatabaseManagerPanel adminUserId={adminUserId} />
       )}
 
-      {/* MODAL REGISTRAR/EDITAR USUARIO */}
-      {userModalOpen && (
-        <div className="ag-modal-overlay">
-          <div className="ag-modal">
-            <div className="ag-modal-header">
-              <h3>
-                {editingUser
-                  ? 'Editar Perfil de Usuario'
-                  : userFormMode === 'admin-general'
-                    ? 'Registrar Administrador General'
-                    : userFormMode === 'admin-program'
-                      ? 'Registrar Administrador de Programa'
-                      : 'Registrar Nuevo Usuario'}
-              </h3>
-              <button className="ag-modal-close" onClick={() => setUserModalOpen(false)}><X size={18} /></button>
-            </div>
-            <form onSubmit={handleSaveUser}>
-              <div className="ag-modal-body">
-                {userFormMode === 'admin-general' && (
-                  <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: 0 }}>
-                    Tendrá acceso a todos los programas y al panel de Administración General.
-                  </p>
-                )}
-                {userFormMode === 'admin-program' && (
-                  <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: 0 }}>
-                    Solo verá y gestionará la información del programa que elijas abajo.
-                  </p>
-                )}
-                <div className="ag-form-group">
-                  <label>Nombre Completo:</label>
-                  <input
-                    type="text"
-                    className="ag-form-input"
-                    required
-                    value={userFormData.full_name}
-                    onChange={(e) => setUserFormData({ ...userFormData, full_name: e.target.value })}
-                  />
-                </div>
+      {/* MODAL REGISTRAR/EDITAR USUARIO
 
-                <div className="ag-form-group">
-                  <label>Correo Electrónico:</label>
-                  <input
-                    type="email"
-                    className="ag-form-input"
-                    required
-                    value={userFormData.email}
-                    onChange={(e) => setUserFormData({ ...userFormData, email: e.target.value })}
-                  />
-                </div>
+          Los seis modales de esta pantalla estaban escritos a mano y ninguno
+          atrapaba el foco ni se cerraba con Escape. Modal hace las dos cosas y
+          además devuelve el foco al botón que lo abrió.
 
-                <div className="ag-form-group">
-                  <label>Contraseña {editingUser && '(Dejar en blanco para mantener actual)'}:</label>
-                  <input
-                    type="password"
-                    className="ag-form-input"
-                    placeholder={editingUser ? '••••••••' : '123456'}
-                    value={userFormData.password}
-                    onChange={(e) => setUserFormData({ ...userFormData, password: e.target.value })}
-                  />
-                </div>
+          El botón de envío vive en el pie del modal, fuera del <form>; los une
+          el atributo form="...", que existe exactamente para este caso. */}
+      <Modal
+        open={userModalOpen}
+        onClose={() => setUserModalOpen(false)}
+        title={
+          editingUser
+            ? 'Editar Perfil de Usuario'
+            : userFormMode === 'admin-general'
+              ? 'Registrar Administrador General'
+              : userFormMode === 'admin-program'
+                ? 'Registrar Administrador de Programa'
+                : 'Registrar Nuevo Usuario'
+        }
+        description={
+          userFormMode === 'admin-general'
+            ? 'Tendrá acceso a todos los programas y al panel de Administración General.'
+            : userFormMode === 'admin-program'
+              ? 'Solo verá y gestionará la información del programa que elijas abajo.'
+              : undefined
+        }
+        footer={(
+          <>
+            <Button variant="secondary" onClick={() => setUserModalOpen(false)}>Cancelar</Button>
+            <Button type="submit" form="ag-user-form" loading={saving}>
+              Guardar Usuario
+            </Button>
+          </>
+        )}
+      >
+        <form id="ag-user-form" className="ag-form" onSubmit={handleSaveUser}>
+          <FormField label="Nombre Completo" required>
+            {(field) => (
+              <input
+                {...field}
+                type="text"
+                value={userFormData.full_name}
+                onChange={(e) => setUserFormData({ ...userFormData, full_name: e.target.value })}
+              />
+            )}
+          </FormField>
 
-                {userFormMode !== 'admin-general' && (
-                  <div className="ag-form-group">
-                    <label>Programa Académico{userFormMode === 'admin-program' ? ' *' : ''}:</label>
-                    <select
-                      className="ag-form-input"
-                      required={userFormMode === 'admin-program'}
-                      value={userFormData.program_id}
-                      onChange={(e) => setUserFormData({ ...userFormData, program_id: e.target.value })}
-                    >
-                      <option value="">-- Seleccionar Programa --</option>
-                      {programsList.map((prg) => (
-                        <option key={prg.program_id} value={prg.program_id}>{prg.name}</option>
-                      ))}
-                    </select>
-                    {userFormMode === 'admin-program' && (
-                      <small style={{ color: 'var(--text-secondary)' }}>
-                        Este administrador solo verá y gestionará la información de este programa.
-                      </small>
-                    )}
-                  </div>
-                )}
+          <FormField label="Correo Electrónico" required>
+            {(field) => (
+              <input
+                {...field}
+                type="email"
+                value={userFormData.email}
+                onChange={(e) => setUserFormData({ ...userFormData, email: e.target.value })}
+              />
+            )}
+          </FormField>
 
-                {/* El checklist de roles solo se muestra en el formulario genérico:
-                    los formularios de "Admin General" / "Admin de Programa" ya
-                    traen el rol correcto preseleccionado, sin que el usuario
-                    tenga que buscarlo entre la lista. */}
-                {!editingUser && userFormMode === 'user' && (
-                  <div className="ag-form-group">
-                    <label>Roles:</label>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                      {rolesList.map((r) => {
-                        const checked = userFormData.role_ids.includes(r.role_id);
-                        return (
-                          <label key={r.role_id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={(e) => {
-                                setUserFormData((prev) => ({
-                                  ...prev,
-                                  role_ids: e.target.checked
-                                    ? [...prev.role_ids, r.role_id]
-                                    : prev.role_ids.filter((id) => id !== r.role_id),
-                                }));
-                              }}
-                            />
-                            {r.name}
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-                {editingUser && (
-                  <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                    Para cambiar los roles de un usuario existente usa el botón "Asignar Roles" en la tabla de usuarios.
-                  </p>
-                )}
-              </div>
+          <FormField
+            label={editingUser ? 'Contraseña (dejar en blanco para mantener la actual)' : 'Contraseña'}
+          >
+            {(field) => (
+              <input
+                {...field}
+                type="password"
+                placeholder={editingUser ? '••••••••' : 'Se generará una temporal si se deja vacío'}
+                value={userFormData.password}
+                onChange={(e) => setUserFormData({ ...userFormData, password: e.target.value })}
+              />
+            )}
+          </FormField>
 
-              <div className="ag-modal-footer">
-                <button type="button" className="ag-btn-secondary" onClick={() => setUserModalOpen(false)}>Cancelar</button>
-                <button type="submit" className="ag-btn-primary" disabled={saving}>
-                  {saving ? 'Guardando...' : 'Guardar Usuario'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: HACER ADMINISTRADOR DE PROGRAMA A UN DOCENTE YA EXISTENTE */}
-      {programAdminModalOpen && (
-        <div className="ag-modal-overlay">
-          <div className="ag-modal">
-            <div className="ag-modal-header">
-              <h3>Agregar Administrador de Programa</h3>
-              <button className="ag-modal-close" onClick={() => setProgramAdminModalOpen(false)}><X size={18} /></button>
-            </div>
-            <div className="ag-modal-body">
-              <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: 0 }}>
-                Elige el programa y luego selecciona a uno de los docentes que ya están registrados en él. Ese docente
-                conservará su rol de Docente y además podrá administrar ese programa.
-              </p>
-
-              <div className="ag-form-group">
-                <label>Programa Académico:</label>
+          {userFormMode !== 'admin-general' && (
+            <FormField
+              label="Programa Académico"
+              required={userFormMode === 'admin-program'}
+              hint={userFormMode === 'admin-program'
+                ? 'Este administrador solo verá y gestionará la información de este programa.'
+                : undefined}
+            >
+              {(field) => (
                 <select
-                  className="ag-form-input"
-                  value={programAdminProgramId}
-                  onChange={(e) => {
-                    setProgramAdminProgramId(e.target.value);
-                    setProgramAdminUserId('');
-                  }}
+                  {...field}
+                  value={userFormData.program_id}
+                  onChange={(e) => setUserFormData({ ...userFormData, program_id: e.target.value })}
                 >
                   <option value="">-- Seleccionar Programa --</option>
                   {programsList.map((prg) => (
                     <option key={prg.program_id} value={prg.program_id}>{prg.name}</option>
                   ))}
                 </select>
-              </div>
+              )}
+            </FormField>
+          )}
 
-              <div className="ag-form-group">
-                <label>Docente:</label>
-                {!programAdminProgramId ? (
-                  <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Primero selecciona un programa.</p>
-                ) : teachersForProgramAdmin.length === 0 ? (
-                  <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                    No hay docentes registrados en este programa todavía. Regístralo primero desde "Registrar Nuevo Usuario"
-                    con el rol "Docente" y el programa correspondiente.
-                  </p>
-                ) : (
-                  <select
-                    className="ag-form-input"
-                    value={programAdminUserId}
-                    onChange={(e) => setProgramAdminUserId(e.target.value)}
-                  >
-                    <option value="">-- Seleccionar Docente --</option>
-                    {teachersForProgramAdmin.map((t) => {
-                      const alreadyAdmin = (t.roles || []).some((r) => {
-                        const rn = (r.name || '').toLowerCase();
-                        return rn.includes('administrador') && !rn.includes('general');
-                      });
-                      return (
-                        <option key={t.user_id} value={t.user_id}>
-                          {t.full_name} — {t.email}{alreadyAdmin ? ' (ya es Administrador)' : ''}
-                        </option>
-                      );
-                    })}
-                  </select>
-                )}
+          {/* El checklist de roles solo se muestra en el formulario genérico:
+              los formularios de "Admin General" / "Admin de Programa" ya traen
+              el rol correcto preseleccionado, sin que el usuario tenga que
+              buscarlo entre la lista.
+
+              Va en un <fieldset> y no en un <label> suelto: el rótulo describe
+              al grupo entero, no a una casilla, y un htmlFor aquí apuntaría a
+              un control que no existe. */}
+          {!editingUser && userFormMode === 'user' && (
+            <fieldset className="ag-fieldset">
+              <legend className="ag-fieldset-legend">Roles</legend>
+              <div className="ag-check-list">
+                {rolesList.map((r) => {
+                  const checked = userFormData.role_ids.includes(r.role_id);
+                  return (
+                    <label key={r.role_id} className="ag-check-item">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => {
+                          setUserFormData((prev) => ({
+                            ...prev,
+                            role_ids: e.target.checked
+                              ? [...prev.role_ids, r.role_id]
+                              : prev.role_ids.filter((id) => id !== r.role_id),
+                          }));
+                        }}
+                      />
+                      {r.name}
+                    </label>
+                  );
+                })}
               </div>
-            </div>
-            <div className="ag-modal-footer">
-              <button type="button" className="ag-btn-secondary" onClick={() => setProgramAdminModalOpen(false)}>Cancelar</button>
-              <button
-                type="button"
-                className="ag-btn-primary"
-                disabled={saving || !programAdminProgramId || !programAdminUserId}
-                onClick={handleConfirmProgramAdmin}
+            </fieldset>
+          )}
+
+          {editingUser && (
+            <p className="ag-hint">
+              Para cambiar los roles de un usuario existente usa el botón "Asignar Roles" en la tabla de usuarios.
+            </p>
+          )}
+        </form>
+      </Modal>
+
+      {/* MODAL: HACER ADMINISTRADOR DE PROGRAMA A UN DOCENTE YA EXISTENTE */}
+      <Modal
+        open={programAdminModalOpen}
+        onClose={() => setProgramAdminModalOpen(false)}
+        title="Agregar Administrador de Programa"
+        description="Elige el programa y luego selecciona a uno de los docentes que ya están registrados en él. Ese docente conservará su rol de Docente y además podrá administrar ese programa."
+        footer={(
+          <>
+            <Button variant="secondary" onClick={() => setProgramAdminModalOpen(false)}>Cancelar</Button>
+            <Button
+              loading={saving}
+              disabled={!programAdminProgramId || !programAdminUserId}
+              onClick={handleConfirmProgramAdmin}
+            >
+              Hacer Administrador
+            </Button>
+          </>
+        )}
+      >
+        <FormField label="Programa Académico">
+          {(field) => (
+            <select
+              {...field}
+              value={programAdminProgramId}
+              onChange={(e) => {
+                setProgramAdminProgramId(e.target.value);
+                setProgramAdminUserId('');
+              }}
+            >
+              <option value="">-- Seleccionar Programa --</option>
+              {programsList.map((prg) => (
+                <option key={prg.program_id} value={prg.program_id}>{prg.name}</option>
+              ))}
+            </select>
+          )}
+        </FormField>
+
+        {!programAdminProgramId ? (
+          <FormField label="Docente">
+            <p className="ag-hint">Primero selecciona un programa.</p>
+          </FormField>
+        ) : teachersForProgramAdmin.length === 0 ? (
+          <FormField label="Docente">
+            <p className="ag-hint">
+              No hay docentes registrados en este programa todavía. Regístralo primero desde "Registrar Nuevo Usuario"
+              con el rol "Docente" y el programa correspondiente.
+            </p>
+          </FormField>
+        ) : (
+          <FormField label="Docente">
+            {(field) => (
+              <select
+                {...field}
+                value={programAdminUserId}
+                onChange={(e) => setProgramAdminUserId(e.target.value)}
               >
-                {saving ? 'Guardando...' : 'Hacer Administrador'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+                <option value="">-- Seleccionar Docente --</option>
+                {teachersForProgramAdmin.map((t) => {
+                  const alreadyAdmin = (t.roles || []).some((r) => {
+                    const rn = (r.name || '').toLowerCase();
+                    return rn.includes('administrador') && !rn.includes('general');
+                  });
+                  return (
+                    <option key={t.user_id} value={t.user_id}>
+                      {t.full_name} — {t.email}{alreadyAdmin ? ' (ya es Administrador)' : ''}
+                    </option>
+                  );
+                })}
+              </select>
+            )}
+          </FormField>
+        )}
+      </Modal>
 
       {/* MODAL ASIGNAR ROLES A USUARIO */}
-      {assignRoleModalUser && (
-        <div className="ag-modal-overlay">
-          <div className="ag-modal">
-            <div className="ag-modal-header">
-              <h3>Asignar Roles a: {assignRoleModalUser.full_name}</h3>
-              <button className="ag-modal-close" onClick={() => setAssignRoleModalUser(null)}><X size={18} /></button>
-            </div>
-            <div className="ag-modal-body">
-              <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
-                Marca los roles que este usuario debe tener activos en el sistema:
-              </p>
-
-              {rolesList.map((r) => {
-                const checked = selectedRoleIds.includes(r.role_id);
-                return (
-                  <label key={r.role_id} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.5rem 0', cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setSelectedRoleIds([...selectedRoleIds, r.role_id]);
-                        } else {
-                          setSelectedRoleIds(selectedRoleIds.filter((id) => id !== r.role_id));
-                        }
-                      }}
-                    />
-                    <span style={{ fontWeight: 600 }}>{r.name}</span>
-                    <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>({r.description || 'Sin descripción'})</span>
-                  </label>
-                );
-              })}
-            </div>
-
-            <div className="ag-modal-footer">
-              <button type="button" className="ag-btn-secondary" onClick={() => setAssignRoleModalUser(null)}>Cancelar</button>
-              <button type="button" className="ag-btn-primary" onClick={handleSaveUserRoles} disabled={saving}>
-                {saving ? 'Guardando...' : 'Guardar Roles'}
-              </button>
-            </div>
+      <Modal
+        open={Boolean(assignRoleModalUser)}
+        onClose={() => setAssignRoleModalUser(null)}
+        title={'Asignar Roles a: ' + (assignRoleModalUser?.full_name || '')}
+        description="Marca los roles que este usuario debe tener activos en el sistema."
+        footer={(
+          <>
+            <Button variant="secondary" onClick={() => setAssignRoleModalUser(null)}>Cancelar</Button>
+            <Button onClick={handleSaveUserRoles} loading={saving}>
+              Guardar Roles
+            </Button>
+          </>
+        )}
+      >
+        <fieldset className="ag-fieldset">
+          <legend className="ag-fieldset-legend">Roles disponibles</legend>
+          <div className="ag-check-list">
+            {rolesList.map((r) => {
+              const checked = selectedRoleIds.includes(r.role_id);
+              return (
+                <label key={r.role_id} className="ag-check-item ag-check-item--spaced">
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedRoleIds([...selectedRoleIds, r.role_id]);
+                      } else {
+                        setSelectedRoleIds(selectedRoleIds.filter((id) => id !== r.role_id));
+                      }
+                    }}
+                  />
+                  <span className="ag-check-name">{r.name}</span>
+                  <span className="ag-check-desc">({r.description || 'Sin descripción'})</span>
+                </label>
+              );
+            })}
           </div>
-        </div>
-      )}
+        </fieldset>
+      </Modal>
 
       {/* MODAL CONFIGURAR PERMISOS ROL */}
-      {assignPermRole && (
-        <div className="ag-modal-overlay">
-          <div className="ag-modal">
-            <div className="ag-modal-header">
-              <h3>Permisos del Rol: {assignPermRole.name}</h3>
-              <button className="ag-modal-close" onClick={() => setAssignPermRole(null)}><X size={18} /></button>
-            </div>
-            <div className="ag-modal-body">
-              {permissionsList.map((p) => {
-                const checked = selectedRolePermIds.includes(p.permission_id);
-                return (
-                  <label key={p.permission_id} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.5rem 0', cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setSelectedRolePermIds([...selectedRolePermIds, p.permission_id]);
-                        } else {
-                          setSelectedRolePermIds(selectedRolePermIds.filter((id) => id !== p.permission_id));
-                        }
-                      }}
-                    />
-                    <span style={{ fontWeight: 600, fontFamily: 'monospace' }}>{p.name}</span>
-                    <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>({p.description})</span>
-                  </label>
-                );
-              })}
-            </div>
-
-            <div className="ag-modal-footer">
-              <button type="button" className="ag-btn-secondary" onClick={() => setAssignPermRole(null)}>Cancelar</button>
-              <button type="button" className="ag-btn-primary" onClick={handleSaveRolePermissions} disabled={saving}>
-                {saving ? 'Guardando...' : 'Guardar Permisos'}
-              </button>
-            </div>
+      <Modal
+        open={Boolean(assignPermRole)}
+        onClose={() => setAssignPermRole(null)}
+        title={'Permisos del Rol: ' + (assignPermRole?.name || '')}
+        footer={(
+          <>
+            <Button variant="secondary" onClick={() => setAssignPermRole(null)}>Cancelar</Button>
+            <Button onClick={handleSaveRolePermissions} loading={saving}>
+              Guardar Permisos
+            </Button>
+          </>
+        )}
+      >
+        <fieldset className="ag-fieldset">
+          <legend className="ag-fieldset-legend">Permisos disponibles</legend>
+          <div className="ag-check-list">
+            {permissionsList.map((p) => {
+              const checked = selectedRolePermIds.includes(p.permission_id);
+              return (
+                <label key={p.permission_id} className="ag-check-item ag-check-item--spaced">
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedRolePermIds([...selectedRolePermIds, p.permission_id]);
+                      } else {
+                        setSelectedRolePermIds(selectedRolePermIds.filter((id) => id !== p.permission_id));
+                      }
+                    }}
+                  />
+                  <span className="ag-check-name ag-check-name--mono">{p.name}</span>
+                  <span className="ag-check-desc">({p.description})</span>
+                </label>
+              );
+            })}
           </div>
-        </div>
-      )}
+        </fieldset>
+      </Modal>
 
       {/* MODAL ROL */}
-      {roleModalOpen && (
-        <div className="ag-modal-overlay">
-          <div className="ag-modal">
-            <div className="ag-modal-header">
-              <h3>{editingRole ? 'Editar Rol' : 'Crear Nuevo Rol'}</h3>
-              <button className="ag-modal-close" onClick={() => setRoleModalOpen(false)}><X size={18} /></button>
-            </div>
-            <form onSubmit={handleSaveRole}>
-              <div className="ag-modal-body">
-                <div className="ag-form-group">
-                  <label>Nombre del Rol:</label>
-                  <input
-                    type="text"
-                    className="ag-form-input"
-                    required
-                    value={roleFormData.name}
-                    onChange={(e) => setRoleFormData({ ...roleFormData, name: e.target.value })}
-                  />
-                </div>
+      <Modal
+        open={roleModalOpen}
+        onClose={() => setRoleModalOpen(false)}
+        title={editingRole ? 'Editar Rol' : 'Crear Nuevo Rol'}
+        size="sm"
+        footer={(
+          <>
+            <Button variant="secondary" onClick={() => setRoleModalOpen(false)}>Cancelar</Button>
+            <Button type="submit" form="ag-role-form" loading={saving}>
+              Guardar Rol
+            </Button>
+          </>
+        )}
+      >
+        <form id="ag-role-form" className="ag-form" onSubmit={handleSaveRole}>
+          <FormField label="Nombre del Rol" required>
+            {(field) => (
+              <input
+                {...field}
+                type="text"
+                value={roleFormData.name}
+                onChange={(e) => setRoleFormData({ ...roleFormData, name: e.target.value })}
+              />
+            )}
+          </FormField>
 
-                <div className="ag-form-group">
-                  <label>Descripción:</label>
-                  <input
-                    type="text"
-                    className="ag-form-input"
-                    value={roleFormData.description}
-                    onChange={(e) => setRoleFormData({ ...roleFormData, description: e.target.value })}
-                  />
-                </div>
-              </div>
-
-              <div className="ag-modal-footer">
-                <button type="button" className="ag-btn-secondary" onClick={() => setRoleModalOpen(false)}>Cancelar</button>
-                <button type="submit" className="ag-btn-primary" disabled={saving}>
-                  {saving ? 'Guardando...' : 'Guardar Rol'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+          <FormField label="Descripción">
+            {(field) => (
+              <input
+                {...field}
+                type="text"
+                value={roleFormData.description}
+                onChange={(e) => setRoleFormData({ ...roleFormData, description: e.target.value })}
+              />
+            )}
+          </FormField>
+        </form>
+      </Modal>
 
       {/* MODAL PERMISO */}
-      {permModalOpen && (
-        <div className="ag-modal-overlay">
-          <div className="ag-modal">
-            <div className="ag-modal-header">
-              <h3>{editingPerm ? 'Editar Permiso' : 'Crear Nuevo Permiso'}</h3>
-              <button className="ag-modal-close" onClick={() => setPermModalOpen(false)}><X size={18} /></button>
-            </div>
-            <form onSubmit={handleSavePerm}>
-              <div className="ag-modal-body">
-                <div className="ag-form-group">
-                  <label>Identificador del Permiso (ej: manage_users):</label>
-                  <input
-                    type="text"
-                    className="ag-form-input"
-                    required
-                    style={{ fontFamily: 'monospace' }}
-                    value={permFormData.name}
-                    onChange={(e) => setPermFormData({ ...permFormData, name: e.target.value })}
-                  />
-                </div>
+      <Modal
+        open={permModalOpen}
+        onClose={() => setPermModalOpen(false)}
+        title={editingPerm ? 'Editar Permiso' : 'Crear Nuevo Permiso'}
+        size="sm"
+        footer={(
+          <>
+            <Button variant="secondary" onClick={() => setPermModalOpen(false)}>Cancelar</Button>
+            <Button type="submit" form="ag-perm-form" loading={saving}>
+              Guardar Permiso
+            </Button>
+          </>
+        )}
+      >
+        <form id="ag-perm-form" className="ag-form" onSubmit={handleSavePerm}>
+          <FormField
+            label="Identificador del Permiso"
+            hint="En minúsculas y sin espacios, por ejemplo: manage_users"
+            required
+          >
+            {(field) => (
+              <input
+                {...field}
+                type="text"
+                className={`${field.className} ag-input-mono`}
+                value={permFormData.name}
+                onChange={(e) => setPermFormData({ ...permFormData, name: e.target.value })}
+              />
+            )}
+          </FormField>
 
-                <div className="ag-form-group">
-                  <label>Descripción:</label>
-                  <input
-                    type="text"
-                    className="ag-form-input"
-                    value={permFormData.description}
-                    onChange={(e) => setPermFormData({ ...permFormData, description: e.target.value })}
-                  />
-                </div>
-              </div>
-
-              <div className="ag-modal-footer">
-                <button type="button" className="ag-btn-secondary" onClick={() => setPermModalOpen(false)}>Cancelar</button>
-                <button type="submit" className="ag-btn-primary" disabled={saving}>
-                  {saving ? 'Guardando...' : 'Guardar Permiso'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+          <FormField label="Descripción">
+            {(field) => (
+              <input
+                {...field}
+                type="text"
+                value={permFormData.description}
+                onChange={(e) => setPermFormData({ ...permFormData, description: e.target.value })}
+              />
+            )}
+          </FormField>
+        </form>
+      </Modal>
 
       {/* MODAL PROGRAMA ACADÉMICO */}
-      {progModalOpen && (
-        <div className="ag-modal-overlay">
-          <div className="ag-modal">
-            <div className="ag-modal-header">
-              <h3>{editingProg ? 'Editar Programa Académico' : 'Crear Programa Académico'}</h3>
-              <button className="ag-modal-close" onClick={() => setProgModalOpen(false)}><X size={18} /></button>
-            </div>
-            <form onSubmit={handleSaveProgram}>
-              <div className="ag-modal-body">
-                <div className="ag-form-group">
-                  <label>Nombre del Programa:</label>
-                  <input
-                    type="text"
-                    className="ag-form-input"
-                    required
-                    value={progFormData.name}
-                    onChange={(e) => setProgFormData({ ...progFormData, name: e.target.value })}
-                  />
-                </div>
+      <Modal
+        open={progModalOpen}
+        onClose={() => setProgModalOpen(false)}
+        title={editingProg ? 'Editar Programa Académico' : 'Crear Programa Académico'}
+        size="sm"
+        footer={(
+          <>
+            <Button variant="secondary" onClick={() => setProgModalOpen(false)}>Cancelar</Button>
+            <Button type="submit" form="ag-program-form" loading={saving}>
+              Guardar Programa
+            </Button>
+          </>
+        )}
+      >
+        <form id="ag-program-form" className="ag-form" onSubmit={handleSaveProgram}>
+          <FormField label="Nombre del Programa" required>
+            {(field) => (
+              <input
+                {...field}
+                type="text"
+                value={progFormData.name}
+                onChange={(e) => setProgFormData({ ...progFormData, name: e.target.value })}
+              />
+            )}
+          </FormField>
 
-                <div className="ag-form-group">
-                  <label>Facultad:</label>
-                  <select
-                    className="ag-form-input"
-                    value={progFormData.faculty_id}
-                    onChange={(e) => setProgFormData({ ...progFormData, faculty_id: e.target.value })}
-                  >
-                    <option value="">-- Seleccionar Facultad --</option>
-                    {facultiesList.map((f) => (
-                      <option key={f.faculty_id} value={f.faculty_id}>{f.name}</option>
-                    ))}
-                  </select>
-                </div>
+          <FormField label="Facultad">
+            {(field) => (
+              <select
+                {...field}
+                value={progFormData.faculty_id}
+                onChange={(e) => setProgFormData({ ...progFormData, faculty_id: e.target.value })}
+              >
+                <option value="">-- Seleccionar Facultad --</option>
+                {facultiesList.map((f) => (
+                  <option key={f.faculty_id} value={f.faculty_id}>{f.name}</option>
+                ))}
+              </select>
+            )}
+          </FormField>
 
-                <div className="ag-form-group">
-                  <label>Modalidad:</label>
-                  <select
-                    className="ag-form-input"
-                    value={progFormData.modality_id}
-                    onChange={(e) => setProgFormData({ ...progFormData, modality_id: e.target.value })}
-                  >
-                    <option value="">-- Seleccionar Modalidad --</option>
-                    {modalitiesList.map((m) => (
-                      <option key={m.modality_id} value={m.modality_id}>{m.name}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="ag-modal-footer">
-                <button type="button" className="ag-btn-secondary" onClick={() => setProgModalOpen(false)}>Cancelar</button>
-                <button type="submit" className="ag-btn-primary" disabled={saving}>
-                  {saving ? 'Guardando...' : 'Guardar Programa'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+          <FormField label="Modalidad">
+            {(field) => (
+              <select
+                {...field}
+                value={progFormData.modality_id}
+                onChange={(e) => setProgFormData({ ...progFormData, modality_id: e.target.value })}
+              >
+                <option value="">-- Seleccionar Modalidad --</option>
+                {modalitiesList.map((m) => (
+                  <option key={m.modality_id} value={m.modality_id}>{m.name}</option>
+                ))}
+              </select>
+            )}
+          </FormField>
+        </form>
+      </Modal>
       </div>
     </DashboardLayout>
   );

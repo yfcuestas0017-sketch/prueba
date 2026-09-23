@@ -5,7 +5,7 @@ export async function assertAdminGeneral(client, userId) {
      LEFT JOIN public.user_roles ur ON ur.user_id = u.user_id
      LEFT JOIN public.roles r ON r.role_id = ur.role_id
      WHERE (u.user_id::text = $1 OR LOWER(u.email) = LOWER($1))
-       AND (LOWER(r.name) LIKE '%administrador general%' OR LOWER(r.name) LIKE '%admin general%' OR LOWER(u.email) = 'admgeneral@unicesmag.edu.co')
+       AND (LOWER(r.name) LIKE '%administrador general%' OR LOWER(r.name) LIKE '%admin general%')
      LIMIT 1`,
     [String(userId)],
   );

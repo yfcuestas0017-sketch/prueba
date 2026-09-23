@@ -224,8 +224,8 @@ export default function CreateProjectModal({ statuses, modalities, lines, sublin
 
                 <div className="epm-grid2">
                   <div className="epm-field epm-span2">
-                    <label>Título *</label>
-                    <input
+                    <label htmlFor="crear-proyecto-campo-1">Título *</label>
+                    <input id="crear-proyecto-campo-1"
                       value={form.title}
                       onChange={e => setForm(p => ({ ...p, title: e.target.value }))}
                       placeholder="Escribe el título del proyecto"
@@ -233,9 +233,9 @@ export default function CreateProjectModal({ statuses, modalities, lines, sublin
                     />
                   </div>
                   <div className="epm-field">
-                    <label>Línea de investigación</label>
+                    <label htmlFor="crear-proyecto-campo-2">Línea de investigación</label>
                     <div className="epm-select-wrap">
-                      <select value={form.lineId} onChange={handleLineChange}>
+                      <select id="crear-proyecto-campo-2" value={form.lineId} onChange={handleLineChange}>
                         <option value="">— Selecciona —</option>
                         {filteredLines.map(l => <option key={l.research_line_id} value={l.research_line_id}>{l.name}</option>)}
                       </select>
@@ -243,8 +243,8 @@ export default function CreateProjectModal({ statuses, modalities, lines, sublin
                     </div>
                   </div>
                   <div className="epm-field">
-                    <label>Código (auto-generado)</label>
-                    <input
+                    <label htmlFor="crear-proyecto-campo-3">Código (auto-generado)</label>
+                    <input id="crear-proyecto-campo-3"
                       value={isGeneratingCode ? 'Generando...' : form.code}
                       onChange={e => setForm(p => ({ ...p, code: e.target.value }))}
                       placeholder="Se genera al elegir la línea"
@@ -252,9 +252,9 @@ export default function CreateProjectModal({ statuses, modalities, lines, sublin
                     />
                   </div>
                   <div className="epm-field">
-                    <label>Modalidad *</label>
+                    <label htmlFor="crear-proyecto-campo-4">Modalidad *</label>
                     <div className="epm-select-wrap">
-                      <select value={form.modalityId} onChange={e => setForm(p => ({ ...p, modalityId: e.target.value }))} required>
+                      <select id="crear-proyecto-campo-4" value={form.modalityId} onChange={e => setForm(p => ({ ...p, modalityId: e.target.value }))} required>
                         <option value="">— Selecciona —</option>
                         {modalities.map(m => <option key={m.modality_id} value={m.modality_id}>{m.name}</option>)}
                       </select>
@@ -262,9 +262,9 @@ export default function CreateProjectModal({ statuses, modalities, lines, sublin
                     </div>
                   </div>
                   <div className="epm-field">
-                    <label>Sublínea</label>
+                    <label htmlFor="crear-proyecto-campo-5">Sublínea</label>
                     <div className="epm-select-wrap">
-                      <select value={form.sublineId} onChange={e => setForm(p => ({ ...p, sublineId: e.target.value }))} disabled={!form.lineId}>
+                      <select id="crear-proyecto-campo-5" value={form.sublineId} onChange={e => setForm(p => ({ ...p, sublineId: e.target.value }))} disabled={!form.lineId}>
                         <option value="">— Selecciona —</option>
                         {filteredSublines.map(s => <option key={s.research_subline_id} value={s.research_subline_id}>{s.name}</option>)}
                       </select>
@@ -273,9 +273,9 @@ export default function CreateProjectModal({ statuses, modalities, lines, sublin
                   </div>
                   {isAdmin && (
                     <div className="epm-field">
-                      <label>Opción de grado</label>
+                      <label htmlFor="crear-proyecto-campo-6">Opción de grado</label>
                       <div className="epm-select-wrap">
-                        <select value={form.degreeOptionId} onChange={e => setForm(p => ({ ...p, degreeOptionId: e.target.value }))}>
+                        <select id="crear-proyecto-campo-6" value={form.degreeOptionId} onChange={e => setForm(p => ({ ...p, degreeOptionId: e.target.value }))}>
                           <option value="">— Selecciona —</option>
                           {(degreeOptions || []).map(opt => (
                             <option key={opt.degree_option_id} value={opt.degree_option_id}>{opt.name}</option>
@@ -286,8 +286,8 @@ export default function CreateProjectModal({ statuses, modalities, lines, sublin
                     </div>
                   )}
                   <div className="epm-field epm-span2">
-                    <label>Carta / link</label>
-                    <input
+                    <label htmlFor="crear-proyecto-campo-7">Carta / link</label>
+                    <input id="crear-proyecto-campo-7"
                       type="url"
                       value={form.letterLink}
                       onChange={e => setForm(p => ({ ...p, letterLink: e.target.value }))}

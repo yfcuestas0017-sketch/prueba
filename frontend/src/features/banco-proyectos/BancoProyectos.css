@@ -335,7 +335,8 @@
 
 .banco-badge-status--disponible {
   background: rgba(16, 185, 129, 0.14);
-  color: #059669;
+  /* #059669 daba 3,32:1 sobre este fondo verde claro; #047857 da 4,84:1. */
+  color: #047857;
   border: 1px solid rgba(16, 185, 129, 0.35);
 }
 
@@ -797,12 +798,15 @@
 @media (max-width: 768px) {
   .banco-hero {
     padding: 18px 20px;
+    flex-direction: column;
+    align-items: flex-start;
   }
   .banco-hero-actions {
     width: 100%;
   }
   .banco-hero-actions button {
     width: 100%;
+    justify-content: center;
   }
   .banco-cards-grid {
     grid-template-columns: 1fr;
@@ -814,6 +818,40 @@
     grid-template-columns: 1fr;
   }
 }
+
+@media (max-width: 640px) {
+  .banco-modal {
+    width: 95vw;
+    max-height: 92dvh;
+    border-radius: var(--border-radius-lg);
+  }
+  .banco-modal-header {
+    padding: 14px 16px;
+  }
+  .banco-modal-body {
+    padding: 16px;
+    gap: 14px;
+  }
+  .banco-modal-footer {
+    padding: 12px 16px;
+    flex-direction: column-reverse;
+  }
+  .banco-modal-footer button {
+    width: 100%;
+    justify-content: center;
+  }
+  .student-notice-banner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .student-notice-action {
+    width: 100%;
+  }
+  .student-notice-action button {
+    width: 100%;
+  }
+}
+
 
 /* ── HISTORIAL Y AUDITORÍA TIMELINE ────────────────────────────────────── */
 .banco-history-timeline {

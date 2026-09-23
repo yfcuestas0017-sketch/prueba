@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { X, ChevronDown, Save, Loader2, Plus, Trash2, Users, History } from 'lucide-react';
 import api from '../../lib/api';
 import './EditProjectModal.css';
@@ -44,7 +44,6 @@ export default function EditProjectModal({ project, statuses, modalities, lines,
   const [formError, setFormError] = useState('');
   const [formSuccess, setFormSuccess] = useState('');
 
-
   // ── Equipo del proyecto (solo admin) ──────────────────────────────────
   const initialTeam = [
     ...(project.authorsList || []).map(p => ({ id: p.id, name: p.name, email: p.email, role: p.role || 'autor' })),
@@ -89,7 +88,6 @@ export default function EditProjectModal({ project, statuses, modalities, lines,
       s => String(s.research_line_id) === String(form.lineId)
     );
   }, [sublines, form.lineId]);
-
 
   const handleAddTeamMember = async () => {
     const email = newEmail.trim();
@@ -191,8 +189,8 @@ export default function EditProjectModal({ project, statuses, modalities, lines,
 
               <div className="epm-grid2">
                 <div className="epm-field epm-span2">
-                  <label>Título *</label>
-                  <input
+                  <label htmlFor="edit-project-modal-campo-1">Título *</label>
+                  <input id="edit-project-modal-campo-1"
                     value={form.title}
                     onChange={e => setForm(p => ({ ...p, title: e.target.value }))}
                     required
@@ -200,9 +198,9 @@ export default function EditProjectModal({ project, statuses, modalities, lines,
                 </div>
 
                 <div className="epm-field">
-                  <label>Estado</label>
+                  <label htmlFor="edit-project-modal-campo-2">Estado</label>
                   <div className="epm-select-wrap">
-                    <select value={form.statusId} onChange={e => setForm(p => ({ ...p, statusId: e.target.value }))}>
+                    <select id="edit-project-modal-campo-2" value={form.statusId} onChange={e => setForm(p => ({ ...p, statusId: e.target.value }))}>
                       <option value="">— Selecciona —</option>
                       {statuses.map(s => <option key={s.status_id} value={s.status_id}>{s.name}</option>)}
                     </select>
@@ -211,9 +209,9 @@ export default function EditProjectModal({ project, statuses, modalities, lines,
                 </div>
 
                 <div className="epm-field">
-                  <label>Modalidad</label>
+                  <label htmlFor="edit-project-modal-campo-3">Modalidad</label>
                   <div className="epm-select-wrap">
-                    <select value={form.modalityId} onChange={e => setForm(p => ({ ...p, modalityId: e.target.value }))}>
+                    <select id="edit-project-modal-campo-3" value={form.modalityId} onChange={e => setForm(p => ({ ...p, modalityId: e.target.value }))}>
                       <option value="">— Selecciona —</option>
                       {modalities.map(m => <option key={m.modality_id} value={m.modality_id}>{m.name}</option>)}
                     </select>
@@ -222,10 +220,10 @@ export default function EditProjectModal({ project, statuses, modalities, lines,
                 </div>
 
                 <div className="epm-field">
-                  <label>Opción de grado</label>
+                  <label htmlFor="edit-project-modal-campo-4">Opción de grado</label>
                   {isAdmin ? (
                     <div className="epm-select-wrap">
-                      <select
+                      <select id="edit-project-modal-campo-4"
                         value={form.degreeOptionId || ''}
                         onChange={e => setForm(p => ({ ...p, degreeOptionId: e.target.value }))}
                       >
@@ -253,9 +251,9 @@ export default function EditProjectModal({ project, statuses, modalities, lines,
                 </div>
 
                 <div className="epm-field">
-                  <label>Línea</label>
+                  <label htmlFor="edit-project-modal-campo-5">Línea</label>
                   <div className="epm-select-wrap">
-                    <select value={form.lineId} onChange={e => setForm(p => ({ ...p, lineId: e.target.value, sublineId: '' }))}>
+                    <select id="edit-project-modal-campo-5" value={form.lineId} onChange={e => setForm(p => ({ ...p, lineId: e.target.value, sublineId: '' }))}>
                       <option value="">— Selecciona —</option>
                       {filteredLines.map(l => <option key={l.research_line_id} value={l.research_line_id}>{l.name}</option>)}
                     </select>
@@ -264,9 +262,9 @@ export default function EditProjectModal({ project, statuses, modalities, lines,
                 </div>
 
                 <div className="epm-field">
-                  <label>Sublínea</label>
+                  <label htmlFor="edit-project-modal-campo-6">Sublínea</label>
                   <div className="epm-select-wrap">
-                    <select value={form.sublineId} onChange={e => setForm(p => ({ ...p, sublineId: e.target.value }))} disabled={!form.lineId}>
+                    <select id="edit-project-modal-campo-6" value={form.sublineId} onChange={e => setForm(p => ({ ...p, sublineId: e.target.value }))} disabled={!form.lineId}>
                       <option value="">— Selecciona —</option>
                       {filteredSublines.map(s => <option key={s.research_subline_id} value={s.research_subline_id}>{s.name}</option>)}
                     </select>
@@ -275,8 +273,8 @@ export default function EditProjectModal({ project, statuses, modalities, lines,
                 </div>
 
                 <div className="epm-field epm-span2">
-                  <label>Carta / link</label>
-                  <input
+                  <label htmlFor="edit-project-modal-campo-7">Carta / link</label>
+                  <input id="edit-project-modal-campo-7"
                     type="url"
                     value={form.letterLink}
                     onChange={e => setForm(p => ({ ...p, letterLink: e.target.value }))}

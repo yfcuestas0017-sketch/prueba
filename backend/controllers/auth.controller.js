@@ -1,5 +1,16 @@
 import { randomUUID } from 'crypto';
 import pool from '../config/db.js';
+import { withTransaction } from '../db/withTransaction.js';
+import { HttpError, sendError } from '../utils/httpError.js';
+import { hashPassword, verifyPassword } from '../utils/password.js';
+import { signSessionToken, SESSION_EXPIRES_IN } from '../utils/token.js';
+
+/**
+ * Mismo mensaje para "el correo no existe" y "la contraseña no coincide".
+ * Distinguirlos convierte el login en un verificador de correos institucionales:
+ * cualquiera podría averiguar quién está registrado sin conocer contraseña alguna.
+ */
+const CREDENCIALES_INVALIDAS = 'Correo o contraseña incorrectos.';
 
 export const login = async (req, res) => {
   const { email, password } = req.body;
@@ -27,19 +38,28 @@ export const login = async (req, res) => {
     const result = await pool.query(query, [email.trim()]);
 
     if (result.rows.length === 0) {
-      return res.status(401).json({ error: 'El correo electrónico ingresado no está registrado.' });
+      return res.status(401).json({ error: CREDENCIALES_INVALIDAS });
     }
 
-    const baseUser = result.rows[0];
-    const storedPassword = (baseUser.password || '').trim();
-    const inputPassword = password.trim();
+    const user = result.rows[0];
+    const { valid, needsUpgrade } = await verifyPassword(password, user.password);
 
-    const isValidPassword = (storedPassword === inputPassword) ||
-                            (inputPassword === '123456' && storedPassword === '12345678') ||
-                            (inputPassword === '12345678' && storedPassword === '123456');
+    if (!valid) {
+      return res.status(401).json({ error: CREDENCIALES_INVALIDAS });
+    }
 
-    if (!isValidPassword) {
-      return res.status(401).json({ error: 'Contraseña incorrecta.' });
+    // La contraseña estaba guardada en texto plano (fila anterior a la
+    // migración a bcrypt): se rehashea aprovechando que aquí la conocemos.
+    if (needsUpgrade) {
+      try {
+        await pool.query(
+          'UPDATE public.users SET password = $1 WHERE user_id = $2',
+          [await hashPassword(password), user.user_id],
+        );
+      } catch (upgradeErr) {
+        // No se le niega el acceso a nadie porque falle el rehasheo.
+        console.error('No se pudo rehashear la contraseña de', user.email, upgradeErr);
+      }
     }
 
     const roleRows = result.rows.filter((r) => r.role_id);
@@ -77,23 +97,32 @@ export const login = async (req, res) => {
     const role = (primaryRoleRow?.role_name || 'estudiante').toLowerCase();
     const roleNames = roleRows.map((r) => r.role_name).filter(Boolean);
 
+    const sessionUser = {
+      id: String(user.user_id),
+      name: user.full_name,
+      email: user.email,
+      role: role,
+      // `role` es solo el rol PRINCIPAL resuelto más arriba. `roles` lleva la
+      // lista completa, y es lo que necesitan los ayudantes de
+      // `frontend/src/lib/roles.js`: un Administrador de Programa conserva
+      // Docente + Administrador, y si el principal resuelve a "docente" se le
+      // negaría el acceso que sí le corresponde.
+      roles: roleNames,
+      // Del rol principal, no de result.rows[0]: con varios roles esa primera
+      // fila no tiene por qué ser la del rol que manda.
+      roleId: primaryRoleRow?.role_id || 3,
+      permissions,
+      programId: user.program_id,
+      programName: user.program_name || null,
+    };
+
     res.json({
-      user: {
-        id: String(baseUser.user_id),
-        name: baseUser.full_name,
-        email: baseUser.email,
-        role: role,
-        roles: roleNames,
-        roleId: primaryRoleRow?.role_id || 3,
-        permissions,
-        programId: baseUser.program_id,
-        programName: baseUser.program_name || null,
-        authMode: 'postgres',
-      },
+      token: signSessionToken(sessionUser),
+      expiresIn: SESSION_EXPIRES_IN,
+      user: sessionUser,
     });
   } catch (err) {
-    console.error('Login error:', err);
-    res.status(500).json({ error: 'Error en servidor al iniciar sesión: ' + err.message });
+    return sendError(res, err, 'Login error:', 'Error en servidor al iniciar sesión.');
   }
 };
 
@@ -104,85 +133,84 @@ export const register = async (req, res) => {
     return res.status(400).json({ error: 'Todos los campos obligatorios deben estar completos.' });
   }
 
-  const client = await pool.connect();
   try {
-    await client.query('BEGIN');
+    const hashedPassword = await hashPassword(password.trim());
 
-    // 1. Verificar si el email ya existe
-    const existing = await client.query(
-      'SELECT user_id FROM public.users WHERE LOWER(email) = LOWER($1)',
-      [email.trim()]
-    );
-    if (existing.rows.length > 0) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'El correo electrónico ya está registrado.' });
-    }
-
-    const newUserId = randomUUID();
-
-    // 2. Insertar usuario
-    const userRes = await client.query(
-      `INSERT INTO public.users (user_id, full_name, email, password, program_id)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING user_id, full_name, email, program_id`,
-      [newUserId, fullName.trim(), email.trim().toLowerCase(), password.trim(), programId ? parseInt(programId, 10) : null]
-    );
-    const newUser = userRes.rows[0];
-
-    // 3. Asignar rol "Estudiante"
-    let roleRes = await client.query("SELECT role_id FROM public.roles WHERE LOWER(name) = 'estudiante' LIMIT 1");
-    let roleId = roleRes.rows[0]?.role_id || 3;
-
-    await client.query(
-      'INSERT INTO public.user_roles (user_id, role_id) VALUES ($1, $2)',
-      [String(newUser.user_id), roleId]
-    );
-
-    // 4. Registrar la información académica
-    if (semesterId) {
-      const curriculumRes = await client.query(
-        `SELECT curriculum_id
-         FROM public.academic_curricula
-         WHERE status = 'activo'
-           AND ($1::int IS NULL OR program_id = $1::int)
-         ORDER BY curriculum_id
-         LIMIT 1`,
-        [programId ? parseInt(programId, 10) : null],
+    const newUser = await withTransaction(pool, async (client) => {
+      // 1. Verificar si el email ya existe
+      const existing = await client.query(
+        'SELECT user_id FROM public.users WHERE LOWER(email) = LOWER($1)',
+        [email.trim()]
       );
-      const selectedCurriculumId = curriculumId
-        ? parseInt(curriculumId, 10)
-        : curriculumRes.rows[0]?.curriculum_id;
-
-      if (!selectedCurriculumId) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({ error: 'No existe un currículo académico activo para registrar al estudiante.' });
+      if (existing.rows.length > 0) {
+        throw new HttpError(400, 'El correo electrónico ya está registrado.');
       }
 
-      await client.query(
-        `INSERT INTO public.students (user_id, semester_id, curriculum_id)
-         VALUES ($1, $2, $3)`,
-        [String(newUser.user_id), parseInt(semesterId, 10), selectedCurriculumId]
-      );
-    }
+      const newUserId = randomUUID();
 
-    await client.query('COMMIT');
+      // 2. Insertar usuario
+      const userRes = await client.query(
+        `INSERT INTO public.users (user_id, full_name, email, password, program_id)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING user_id, full_name, email, program_id`,
+        [newUserId, fullName.trim(), email.trim().toLowerCase(), hashedPassword, programId ? parseInt(programId, 10) : null]
+      );
+      const created = userRes.rows[0];
+
+      // 3. Asignar rol "Estudiante"
+      let roleRes = await client.query("SELECT role_id FROM public.roles WHERE LOWER(name) = 'estudiante' LIMIT 1");
+      let roleId = roleRes.rows[0]?.role_id || 3;
+
+      await client.query(
+        'INSERT INTO public.user_roles (user_id, role_id) VALUES ($1, $2)',
+        [String(created.user_id), roleId]
+      );
+
+      // 4. Registrar la información académica
+      if (semesterId) {
+        const curriculumRes = await client.query(
+          `SELECT curriculum_id
+           FROM public.academic_curricula
+           WHERE status = 'activo'
+             AND ($1::int IS NULL OR program_id = $1::int)
+           ORDER BY curriculum_id
+           LIMIT 1`,
+          [programId ? parseInt(programId, 10) : null],
+        );
+        const selectedCurriculumId = curriculumId
+          ? parseInt(curriculumId, 10)
+          : curriculumRes.rows[0]?.curriculum_id;
+
+        if (!selectedCurriculumId) {
+          throw new HttpError(400, 'No existe un currículo académico activo para registrar al estudiante.');
+        }
+
+        await client.query(
+          `INSERT INTO public.students (user_id, semester_id, curriculum_id)
+           VALUES ($1, $2, $3)`,
+          [String(created.user_id), parseInt(semesterId, 10), selectedCurriculumId]
+        );
+      }
+
+      return created;
+    });
+
+    const sessionUser = {
+      id: String(newUser.user_id),
+      name: newUser.full_name,
+      email: newUser.email,
+      role: 'estudiante',
+      roleId: 3,
+      permissions: [],
+      programId: newUser.program_id,
+    };
 
     res.status(201).json({
-      user: {
-        id: String(newUser.user_id),
-        name: newUser.full_name,
-        email: newUser.email,
-        role: 'estudiante',
-        roleId: 3,
-        programId: newUser.program_id,
-        authMode: 'postgres',
-      },
+      token: signSessionToken(sessionUser),
+      expiresIn: SESSION_EXPIRES_IN,
+      user: sessionUser,
     });
   } catch (err) {
-    await client.query('ROLLBACK');
-    console.error('Register error:', err);
-    res.status(500).json({ error: 'Error al registrar el usuario: ' + err.message });
-  } finally {
-    client.release();
+    return sendError(res, err, 'Register error:', 'Error al registrar el usuario.');
   }
 };

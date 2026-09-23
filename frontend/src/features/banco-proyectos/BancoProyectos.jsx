@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Modal, Alert } from '../../components/ui';
 import {
   AlertCircle,
   Award,
@@ -20,7 +21,6 @@ import {
   Tag,
   User,
   UserCheck,
-  Users,
   X,
 } from 'lucide-react';
 import DashboardLayout from '../../components/layout/DashboardLayout';
@@ -83,6 +83,12 @@ export default function BancoProyectos() {
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [historyError, setHistoryError] = useState('');
   const [confirmSelectModal, setConfirmSelectModal] = useState(null);
+  // Este modulo mezclaba window.confirm() y alert() nativos con sus propios
+  // dialogos: dos lenguajes visuales distintos para lo mismo, y los nativos
+  // no siguen el tema ni se pueden traducir ni estilar. Estos dos estados los
+  // sustituyen por el Modal y el Alert del sistema de diseno.
+  const [confirmStatusModal, setConfirmStatusModal] = useState(null);
+  const [actionError, setActionError] = useState('');
   const [createEditModal, setCreateEditModal] = useState({
     isOpen: false,
     mode: 'create', // 'create' | 'edit'
@@ -362,19 +368,27 @@ export default function BancoProyectos() {
   };
 
   // Toggle Project Status (Desactivar / Reactivar)
-  const handleToggleStatus = async (project) => {
-    const newStatus = project.status === 'Disponible' ? 'Inactivo' : 'Disponible';
-    const actionLabel = newStatus === 'Inactivo' ? 'desactivar' : 'reactivar';
-    const confirmMessage = `¿Estás seguro de que deseas ${actionLabel} el proyecto "${project.title}"?`;
+  const handleToggleStatus = (project) => {
+    setActionError('');
+    setConfirmStatusModal(project);
+  };
 
-    if (!window.confirm(confirmMessage)) return;
+  const handleConfirmToggleStatus = async () => {
+    const project = confirmStatusModal;
+    if (!project) return;
+
+    const newStatus = project.status === 'Disponible' ? 'Inactivo' : 'Disponible';
+    setFormSubmitting(true);
 
     try {
       await api.toggleProjectBankStatus(project.project_bank_id, newStatus, user?.role || 'Administrador', currentUserId);
       setSuccessToast(`Proyecto ${newStatus === 'Inactivo' ? 'desactivado' : 'reactivado'} correctamente.`);
+      setConfirmStatusModal(null);
       await loadData();
     } catch (err) {
-      alert(err.message || 'Error al actualizar estado del proyecto.');
+      setActionError(err.message || 'Error al actualizar estado del proyecto.');
+    } finally {
+      setFormSubmitting(false);
     }
   };
 
@@ -395,7 +409,7 @@ export default function BancoProyectos() {
       setDetailModal(null);
       await loadData();
     } catch (err) {
-      alert(err.message || 'No fue posible seleccionar el proyecto.');
+      setActionError(err.message || 'No fue posible seleccionar el proyecto.');
     } finally {
       setFormSubmitting(false);
     }
@@ -446,6 +460,46 @@ export default function BancoProyectos() {
             </button>
           </div>
         )}
+
+        {/* Error de una accion (cambiar estado, seleccionar). Antes era un
+            alert() nativo: bloqueaba la pagina, no seguia el tema y no lo
+            anunciaba ningun lector de pantalla. */}
+        {actionError && (
+          <Alert type="error" onDismiss={() => setActionError('')}>
+            {actionError}
+          </Alert>
+        )}
+
+        {/* Confirmacion de desactivar o reactivar una idea. */}
+        <Modal
+          open={Boolean(confirmStatusModal)}
+          onClose={() => setConfirmStatusModal(null)}
+          title={confirmStatusModal?.status === 'Disponible' ? 'Desactivar idea de proyecto' : 'Reactivar idea de proyecto'}
+          size="sm"
+          footer={(
+            <>
+              <Button variant="ghost" onClick={() => setConfirmStatusModal(null)} disabled={formSubmitting}>
+                Cancelar
+              </Button>
+              <Button
+                variant={confirmStatusModal?.status === 'Disponible' ? 'danger' : 'primary'}
+                onClick={handleConfirmToggleStatus}
+                loading={formSubmitting}
+              >
+                {confirmStatusModal?.status === 'Disponible' ? 'Desactivar' : 'Reactivar'}
+              </Button>
+            </>
+          )}
+        >
+          <p>
+            {confirmStatusModal?.status === 'Disponible'
+              ? 'Esta idea dejara de aparecer entre las disponibles para los estudiantes.'
+              : 'Esta idea volvera a estar disponible para que los estudiantes la seleccionen.'}
+          </p>
+          {confirmStatusModal && (
+            <p><strong>{confirmStatusModal.title}</strong></p>
+          )}
+        </Modal>
 
         {/* STUDENT ALREADY HAS PROJECT NOTICE */}
         {isStudent && studentAssignedProject && (
@@ -538,10 +592,10 @@ export default function BancoProyectos() {
           <div className="banco-filters-grid">
             {/* Search Input */}
             <div className="banco-field" style={{ gridColumn: 'span 1' }}>
-              <label className="banco-field-label">Buscar</label>
+              <label className="banco-field-label" htmlFor="banco-proyectos-campo-1">Buscar</label>
               <div className="banco-search-wrap">
                 <Search size={15} className="banco-search-icon" />
-                <input
+                <input id="banco-proyectos-campo-1"
                   type="text"
                   className="banco-input banco-search-input"
                   placeholder="Título, palabra clave, proponente..."
@@ -553,9 +607,9 @@ export default function BancoProyectos() {
 
             {/* Status Filter */}
             <div className="banco-field">
-              <label className="banco-field-label">Estado</label>
+              <label className="banco-field-label" htmlFor="banco-proyectos-campo-2">Estado</label>
               <div className="banco-select-wrap">
-                <select
+                <select id="banco-proyectos-campo-2"
                   className="banco-select"
                   value={filters.status}
                   onChange={(e) => handleFilterChange('status', e.target.value)}
@@ -571,9 +625,9 @@ export default function BancoProyectos() {
 
             {/* Research Line Filter */}
             <div className="banco-field">
-              <label className="banco-field-label">Línea de investigación</label>
+              <label className="banco-field-label" htmlFor="banco-proyectos-campo-3">Línea de investigación</label>
               <div className="banco-select-wrap">
-                <select
+                <select id="banco-proyectos-campo-3"
                   className="banco-select"
                   value={filters.lineId}
                   onChange={(e) => handleFilterChange('lineId', e.target.value)}
@@ -591,9 +645,9 @@ export default function BancoProyectos() {
 
             {/* Subline Filter */}
             <div className="banco-field">
-              <label className="banco-field-label">Sublínea</label>
+              <label className="banco-field-label" htmlFor="banco-proyectos-campo-4">Sublínea</label>
               <div className="banco-select-wrap">
-                <select
+                <select id="banco-proyectos-campo-4"
                   className="banco-select"
                   value={filters.sublineId}
                   onChange={(e) => handleFilterChange('sublineId', e.target.value)}
@@ -611,11 +665,11 @@ export default function BancoProyectos() {
 
             {/* Program Filter */}
             <div className="banco-field">
-              <label className="banco-field-label">
+              <label className="banco-field-label" htmlFor="banco-proyectos-campo-5">
                 Programa académico {userProgramId && <span style={{ fontSize: '0.72rem', color: 'var(--accent-primary)', textTransform: 'none' }}>(Tu programa)</span>}
               </label>
               <div className="banco-select-wrap">
-                <select
+                <select id="banco-proyectos-campo-5"
                   className="banco-select"
                   value={userProgramId || filters.programId}
                   onChange={(e) => !userProgramId && handleFilterChange('programId', e.target.value)}
@@ -635,9 +689,9 @@ export default function BancoProyectos() {
 
             {/* Year Filter */}
             <div className="banco-field">
-              <label className="banco-field-label">Año</label>
+              <label className="banco-field-label" htmlFor="banco-proyectos-campo-6">Año</label>
               <div className="banco-select-wrap">
-                <select
+                <select id="banco-proyectos-campo-6"
                   className="banco-select"
                   value={filters.year}
                   onChange={(e) => handleFilterChange('year', e.target.value)}
@@ -655,9 +709,9 @@ export default function BancoProyectos() {
 
             {/* Proposer Type Filter */}
             <div className="banco-field">
-              <label className="banco-field-label">Proponente</label>
+              <label className="banco-field-label" htmlFor="banco-proyectos-campo-7">Proponente</label>
               <div className="banco-select-wrap">
-                <select
+                <select id="banco-proyectos-campo-7"
                   className="banco-select"
                   value={filters.proposerRole}
                   onChange={(e) => handleFilterChange('proposerRole', e.target.value)}
@@ -1223,8 +1277,8 @@ export default function BancoProyectos() {
                 <div className="banco-form">
                   {/* Title */}
                   <div className="banco-field">
-                    <label className="banco-field-label">Título del proyecto *</label>
-                    <input
+                    <label className="banco-field-label" htmlFor="banco-proyectos-campo-8">Título del proyecto *</label>
+                    <input id="banco-proyectos-campo-8"
                       type="text"
                       required
                       className="banco-input"
@@ -1236,8 +1290,8 @@ export default function BancoProyectos() {
 
                   {/* Description */}
                   <div className="banco-field">
-                    <label className="banco-field-label">Descripción completa *</label>
-                    <textarea
+                    <label className="banco-field-label" htmlFor="banco-proyectos-campo-9">Descripción completa *</label>
+                    <textarea id="banco-proyectos-campo-9"
                       required
                       className="banco-textarea"
                       placeholder="Explica detalladamente en qué consiste esta idea de proyecto de grado..."
@@ -1249,8 +1303,8 @@ export default function BancoProyectos() {
 
                   {/* General Objective */}
                   <div className="banco-field">
-                    <label className="banco-field-label">Objetivo general</label>
-                    <textarea
+                    <label className="banco-field-label" htmlFor="banco-proyectos-campo-10">Objetivo general</label>
+                    <textarea id="banco-proyectos-campo-10"
                       className="banco-textarea"
                       placeholder="Objetivo principal del proyecto..."
                       rows={2}
@@ -1261,8 +1315,8 @@ export default function BancoProyectos() {
 
                   {/* Specific Objectives */}
                   <div className="banco-field">
-                    <label className="banco-field-label">Objetivos específicos</label>
-                    <textarea
+                    <label className="banco-field-label" htmlFor="banco-proyectos-campo-11">Objetivos específicos</label>
+                    <textarea id="banco-proyectos-campo-11"
                       className="banco-textarea"
                       placeholder="1. Primer objetivo&#10;2. Segundo objetivo&#10;3. Tercer objetivo"
                       rows={3}
@@ -1274,9 +1328,9 @@ export default function BancoProyectos() {
                   {/* Line & Subline Row */}
                   <div className="banco-form-row">
                     <div className="banco-field">
-                      <label className="banco-field-label">Línea de investigación</label>
+                      <label className="banco-field-label" htmlFor="banco-proyectos-campo-12">Línea de investigación</label>
                       <div className="banco-select-wrap">
-                        <select
+                        <select id="banco-proyectos-campo-12"
                           className="banco-select"
                           value={formData.researchLineId}
                           onChange={(e) =>
@@ -1299,9 +1353,9 @@ export default function BancoProyectos() {
                     </div>
 
                     <div className="banco-field">
-                      <label className="banco-field-label">Sublínea de investigación</label>
+                      <label className="banco-field-label" htmlFor="banco-proyectos-campo-13">Sublínea de investigación</label>
                       <div className="banco-select-wrap">
-                        <select
+                        <select id="banco-proyectos-campo-13"
                           className="banco-select"
                           value={formData.researchSublineId}
                           onChange={(e) => setFormData({ ...formData, researchSublineId: e.target.value })}
@@ -1321,9 +1375,9 @@ export default function BancoProyectos() {
                   {/* Program & Keywords Row */}
                   <div className="banco-form-row">
                     <div className="banco-field">
-                      <label className="banco-field-label">Programa académico</label>
+                      <label className="banco-field-label" htmlFor="banco-proyectos-campo-14">Programa académico</label>
                       <div className="banco-select-wrap">
-                        <select
+                        <select id="banco-proyectos-campo-14"
                           className="banco-select"
                           value={formData.programId}
                           onChange={(e) => setFormData({ ...formData, programId: e.target.value })}
@@ -1340,8 +1394,8 @@ export default function BancoProyectos() {
                     </div>
 
                     <div className="banco-field">
-                      <label className="banco-field-label">Palabras clave</label>
-                      <input
+                      <label className="banco-field-label" htmlFor="banco-proyectos-campo-15">Palabras clave</label>
+                      <input id="banco-proyectos-campo-15"
                         type="text"
                         className="banco-input"
                         placeholder="Separadas por comas: IoT, IA, Nariño"
@@ -1353,8 +1407,8 @@ export default function BancoProyectos() {
 
                   {/* Observations */}
                   <div className="banco-field">
-                    <label className="banco-field-label">Observaciones adicionales</label>
-                    <textarea
+                    <label className="banco-field-label" htmlFor="banco-proyectos-campo-16">Observaciones adicionales</label>
+                    <textarea id="banco-proyectos-campo-16"
                       className="banco-textarea"
                       placeholder="Información sobre convenios, convocatorias o contexto aplicable..."
                       rows={2}

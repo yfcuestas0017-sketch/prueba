@@ -37,7 +37,12 @@
   /* Text */
   --text-primary: #182238;
   --text-secondary: #4a5773;
-  --text-muted: #7987a5;
+  /* Oscurecido de #7987a5 a #5d6b8a: el anterior daba 3,61:1 sobre fondo
+     blanco y el mínimo de WCAG AA para texto normal es 4,5:1. Este da 5,34:1.
+     Importa porque este color viste decenas de textos pequeños: metadatos
+     de tabla, etiquetas de KPI, subtítulos de tarjeta y marcadores de
+     posición. El tema oscuro ya cumplía (5,71:1) y no se toca. */
+  --text-muted: #5d6b8a;
   --text-inverse: #ffffff;
 
   /* Accents & Buttons */
@@ -63,11 +68,73 @@
   /* Typography */
   --font-display: 'IBM Plex Serif', Georgia, serif;
   --font-body: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif;
+  /* Para lo que hay que leer carácter a carácter: identificadores de permiso,
+     contraseñas temporales, nombres de columna. Sin fuente descargada: se usa
+     la monoespaciada del sistema, que en Windows es Consolas. */
+  --font-mono: ui-monospace, 'Cascadia Mono', Consolas, 'Courier New', monospace;
 
   /* Transitions */
   --transition-fast: 0.15s ease;
   --transition-base: 0.25s ease;
   --transition-slow: 0.4s ease;
+
+  /* ---- Variables que se usaban sin estar definidas ----
+     Ambas se invocaban con var(..., #hex) en AdminGeneralPage.css y
+     ProyectosPage.css, así que "funcionaban" por el mecanismo de respaldo de
+     var() y siempre caían al color fijo, ignorando el tema. Definirlas aquí es
+     lo que las devuelve al sistema. */
+  --accent-hover: #184882;
+  --border-subtle: #e2e8f0;
+
+  /* ---- Escala tipográfica (modular 1.125) ----
+     Antes había 55 tamaños de letra distintos repartidos por el proyecto. */
+  --fs-2xs: 0.694rem;   /* metadatos, marcas de tiempo */
+  --fs-xs:  0.79rem;    /* etiquetas de KPI, distintivos */
+  --fs-sm:  0.889rem;   /* cuerpo secundario, campos */
+  --fs-md:  1rem;       /* cuerpo base */
+  --fs-lg:  1.125rem;   /* subtítulos */
+  --fs-xl:  1.266rem;   /* títulos de tarjeta */
+  --fs-2xl: 1.424rem;   /* títulos de sección */
+  --fs-3xl: 1.802rem;   /* título de página */
+
+  /* ---- Escala de espaciado (base 4px) ---- */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --sp-10: 40px;
+
+  /* ---- Alturas de control ----
+     Los campos de texto medían entre 33px y 41px según la página. 40px es la
+     altura canónica: la comparten campo y botón. */
+  --control-h-sm: 34px;
+  --control-h-md: 40px;
+  --control-h-lg: 46px;
+
+  /* ---- Escala de z-index, documentada en vez de inventada ----
+     Los modales existentes iban de 200 a 9999 sin ningún criterio. */
+  --z-dropdown: 100;
+  --z-sticky:   200;
+  --z-drawer:   300;
+  --z-modal:    400;
+  --z-toast:    500;
+  --z-tooltip:  600;
+
+  /* ---- Puntos de corte ----
+     CSS no admite var() dentro de @media: estos valores son la referencia
+     acordada (y sirven desde JavaScript). Los @media se escriben a mano. */
+  --bp-sm: 480px;
+  --bp-md: 768px;
+  --bp-lg: 1024px;
+  --bp-xl: 1280px;
+
+  /* Avisa al navegador de qué esquema usa la interfaz, para que los controles
+     nativos —casillas, selectores de fecha, barras de desplazamiento— se
+     pinten en consecuencia. */
+  color-scheme: light;
 }
 
 /* ---- THEME: Dark / Modo Noche ---- */
@@ -99,6 +166,11 @@
   --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.3);
   --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.4);
   --shadow-lg: 0 12px 48px rgba(0, 0, 0, 0.5);
+
+  --accent-hover: #0ea5e9;
+  --border-subtle: #334155;
+
+  color-scheme: dark;
 }
 
 /* ---- THEME: Ocean ---- */
@@ -1023,14 +1095,17 @@ gap: 14px;
   border-color: var(--accent-primary);
 }
 
+/* Era texto negro sobre azul institucional: 3,08:1, por debajo del mínimo de
+   4,5:1. En blanco sube a 6,81:1, y además el color deja de ser fijo y pasa a
+   seguir el tema. */
 .quick-card--primary .quick-card-title,
 .quick-card--primary .quick-card-desc {
-  color: #000 !important;
+  color: var(--text-inverse) !important;
 }
 
 .quick-card--primary .quick-card-icon {
-  background: rgba(0, 0, 0, 0.12) !important;
-  color: #000;
+  background: rgba(255, 255, 255, 0.18) !important;
+  color: var(--text-inverse);
 }
 
 .quick-card-icon {
@@ -1100,3 +1175,53 @@ gap: 14px;
   }
 }
 
+
+
+/* =============================================
+   PREFERENCIA DE MOVIMIENTO REDUCIDO
+
+   Quien activa "reducir movimiento" en su sistema operativo lo hace por una
+   razón: mareos, migrañas o trastornos vestibulares. Hasta ahora la aplicación
+   ignoraba esa preferencia y ejecutaba todas las animaciones igualmente.
+
+   No se desactivan del todo —eso rompe transiciones que comunican estado—:
+   se acortan hasta ser instantáneas.
+   ============================================= */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Pantalla intermedia mientras se descarga el archivo de una ruta diferida. */
+.route-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100dvh;
+  font-family: var(--font-body);
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  background: var(--bg-primary);
+}
+
+/* Contenido solo para lectores de pantalla.
+   No se puede usar display:none ni visibility:hidden: eso lo retira también del
+   árbol de accesibilidad y el lector deja de verlo. La técnica correcta es
+   sacarlo del flujo visual conservándolo en el documento. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

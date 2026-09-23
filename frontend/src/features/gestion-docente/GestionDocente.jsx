@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ArrowLeft, BookOpen, Briefcase, Check, ChevronDown, Gavel, Mail, Pencil, Search, Trash2, UserPlus, Users, X,
+  ArrowLeft,
+  BookOpen,
+  Briefcase,
+  Gavel,
+  Mail,
+  Search,
+  Users,
+  X,
 } from 'lucide-react';
 import DashboardLayout from '../../components/layout/DashboardLayout';
 import Button from '../../components/ui/Button';
@@ -11,12 +18,11 @@ import './GestionDocente.css';
 
 export default function GestionDocente() {
   const { user } = useAuth();
-  const { selectedProgram, setSelectedProgram, isAdminGeneral } = useProgramFilter();
+  const { selectedProgram, isAdminGeneral } = useProgramFilter();
   const userProgramId = user?.programId ?? null;
   const currentUserId = String(user?.user_id || user?.id || '');
 
   const [docentes, setDocentes] = useState([]);
-  const [programs, setPrograms] = useState([]);
   const selectedProgramId = isAdminGeneral ? selectedProgram : (userProgramId ? String(userProgramId) : 'all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -30,13 +36,13 @@ export default function GestionDocente() {
     setError('');
     try {
       // 1. Consultar todos los docentes de la BD para el programa seleccionado y los proyectos
-      const [teachersData, allProjects, catData] = await Promise.all([
+      // Ya no se consultan los catálogos: solo alimentaban el selector de
+      // programa de esta pantalla, que se retiró por duplicar el de la
+      // cabecera. Esto ahorra una petición de red en cada carga.
+      const [teachersData, allProjects] = await Promise.all([
         api.getTeachers(selectedProgramId, currentUserId).catch(() => []),
         api.getProjects(selectedProgramId).catch(() => []),
-        api.getCatalogs().catch(() => ({ programs: [] })),
       ]);
-
-      setPrograms(catData.programs || []);
 
       const docenteMap = {};
 

@@ -198,48 +198,18 @@
   border: none;
   background: transparent;
   color: var(--text-primary);
-  font-size: 0.85rem;
+  font-size: var(--fs-sm);
+  /* `outline: none` sin nada que lo sustituya deja el campo sin ninguna señal
+     de foco: quien navega con teclado no sabe dónde está. El contorno se quita
+     del input y se dibuja sobre la caja entera, que es lo que se ve como
+     control. */
   outline: none;
   width: 100%;
 }
 
-.ag-btn-primary {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  background: var(--accent-primary);
-  color: #ffffff;
-  border: none;
-  padding: 0.55rem 1.1rem;
-  border-radius: 8px;
-  font-size: 0.85rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.2s ease;
-}
-
-.ag-btn-primary:hover {
-  background: var(--accent-hover, #184882);
-}
-
-.ag-btn-secondary {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  border: 1px solid var(--border-color);
-  padding: 0.45rem 0.85rem;
-  border-radius: 6px;
-  font-size: 0.82rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.ag-btn-secondary:hover {
+.ag-search-box:focus-within {
   border-color: var(--accent-primary);
-  color: var(--accent-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 25%, transparent);
 }
 
 /* Tabla Estilizada */
@@ -295,7 +265,7 @@
 
 .ag-badge-admin-gen {
   background: rgba(186, 24, 40, 0.1);
-  color: #BA1828;
+  color: var(--accent-secondary);
   border: 1px solid rgba(186, 24, 40, 0.2);
 }
 
@@ -310,92 +280,6 @@
 }
 
 /* Modales */
-.ag-modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(4px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  padding: 1rem;
-}
-
-.ag-modal {
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  width: 100%;
-  max-width: 540px;
-  box-shadow: var(--shadow-lg);
-  overflow: hidden;
-}
-
-.ag-modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 1.2rem 1.5rem;
-  border-bottom: 1px solid var(--border-color);
-}
-
-.ag-modal-header h3 {
-  margin: 0;
-  font-size: 1.1rem;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.ag-modal-close {
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 0.2rem;
-  border-radius: 4px;
-}
-
-.ag-modal-body {
-  padding: 1.5rem;
-}
-
-.ag-form-group {
-  margin-bottom: 1.1rem;
-}
-
-.ag-form-group label {
-  display: block;
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--text-secondary);
-  margin-bottom: 0.4rem;
-}
-
-.ag-form-input {
-  width: 100%;
-  padding: 0.6rem 0.8rem;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  color: var(--text-primary);
-  font-size: 0.88rem;
-  outline: none;
-}
-
-.ag-form-input:focus {
-  border-color: var(--accent-primary);
-}
-
-.ag-modal-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.75rem;
-  padding: 1rem 1.5rem;
-  background: var(--bg-primary);
-  border-top: 1px solid var(--border-color);
-}
-
 /* Timeline auditoria */
 .ag-audit-item {
   padding: 1rem;
@@ -449,3 +333,266 @@
   padding: 0.2rem 0.5rem;
   border-radius: 4px;
 }
+
+
+/* =============================================
+   RESPONSIVIDAD
+
+   Este archivo no tenía ni una sola media query, apoyándose solo en flex-wrap
+   y grid auto-fit. A 375px el buscador, con su min-width de 260px, empujaba el
+   resto de la barra de herramientas a la línea siguiente de forma descuidada.
+   Es además el módulo del Administrador General, el rol con más probabilidad
+   de usar tablet.
+   ============================================= */
+@media (max-width: 1024px) {
+  .ag-stats-grid {
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .ag-header {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 1.2rem;
+  }
+
+  .ag-program-filter {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .ag-program-select {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .ag-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .ag-search-box {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .ag-tabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 0.75rem;
+  }
+
+  .ag-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .ag-stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 540px) {
+  .ag-stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ag-card {
+    padding: 1rem;
+  }
+
+  .ag-table th,
+  .ag-table td {
+    padding: 0.65rem 0.75rem;
+    font-size: 0.8rem;
+  }
+
+  .ag-tab-btn {
+    padding: 0.55rem 0.85rem;
+    font-size: 0.8rem;
+  }
+}
+
+
+/* ==========================================================================
+   PIEZAS QUE ANTES VIVÍAN EN ATRIBUTOS style= DENTRO DEL JSX
+
+   Esta pantalla tenía 28 estilos en línea. Además de repetir valores, tenían
+   un problema que no se ve leyendo el JSX: los colores estaban escritos a
+   mano en hexadecimal, así que **no respondían al cambio de tema**. En modo
+   oscuro los cinco distintivos de las tarjetas de resumen seguían pintando su
+   tinte claro sobre un fondo oscuro.
+
+   Por eso los cinco colores son variables con su propio bloque para el tema
+   oscuro, en lugar de un token único: los cinco indicadores se distinguen
+   entre sí por el color, y unificarlos en --accent-primary habría borrado esa
+   distinción.
+   ========================================================================== */
+
+.ag-container {
+  --ag-stat-users:    var(--inst-blue-1);
+  --ag-stat-roles:    var(--inst-red-1);
+  --ag-stat-perms:    #3b82f6;
+  --ag-stat-programs: #16a34a;
+  --ag-stat-audit:    #f59e0b;
+}
+
+/* En oscuro el mismo tono, aclarado hasta que se lea sobre --bg-card. */
+[data-theme="dark"] .ag-container {
+  --ag-stat-users:    #60a5fa;
+  --ag-stat-roles:    #f87171;
+  --ag-stat-perms:    #93c5fd;
+  --ag-stat-programs: #4ade80;
+  --ag-stat-audit:    #fbbf24;
+}
+
+.ag-program-filter-icon {
+  color: var(--accent-primary);
+}
+
+/* El fondo es el propio color del distintivo al 12%, así que basta con
+   declarar el color una vez por tarjeta. */
+.ag-stat-icon--users    { color: var(--ag-stat-users);    background: color-mix(in srgb, var(--ag-stat-users) 12%, transparent); }
+.ag-stat-icon--roles    { color: var(--ag-stat-roles);    background: color-mix(in srgb, var(--ag-stat-roles) 12%, transparent); }
+.ag-stat-icon--perms    { color: var(--ag-stat-perms);    background: color-mix(in srgb, var(--ag-stat-perms) 12%, transparent); }
+.ag-stat-icon--programs { color: var(--ag-stat-programs); background: color-mix(in srgb, var(--ag-stat-programs) 12%, transparent); }
+.ag-stat-icon--audit    { color: var(--ag-stat-audit);    background: color-mix(in srgb, var(--ag-stat-audit) 12%, transparent); }
+
+/* El cuerpo del modal ya separa a sus hijos, pero el formulario es un único
+   hijo: la separación entre campos tiene que salir de aquí. */
+.ag-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+/* Un grupo de casillas se rotula con <legend>, no con un <label> suelto: el
+   rótulo describe al conjunto y no hay un control al que apuntar con htmlFor.
+   El navegador le pone borde y margen propios; se los quitamos. */
+.ag-fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.ag-fieldset-legend {
+  padding: 0;
+  margin-bottom: var(--sp-2);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.ag-check-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.ag-check-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.ag-check-item--spaced {
+  gap: var(--sp-3);
+  padding: var(--sp-2) 0;
+}
+
+.ag-check-name { font-weight: 600; }
+.ag-check-name--mono { font-family: var(--font-mono); }
+
+.ag-check-desc {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.ag-hint {
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+}
+
+.ag-input-mono {
+  font-family: var(--font-mono);
+}
+
+/* Contraseña temporal: se muestra una sola vez, así que tiene que leerse sin
+   ambigüedad entre caracteres parecidos. De ahí la fuente monoespaciada y el
+   espaciado extra entre letras. */
+.ag-temp-password {
+  display: inline-block;
+  padding: var(--sp-1) var(--sp-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-md);
+  letter-spacing: 0.08em;
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  border-radius: var(--border-radius-sm);
+}
+
+.ag-temp-password-note {
+  margin: var(--sp-2) 0 var(--sp-3);
+  font-size: var(--fs-sm);
+}
+
+/* --- Panel de Gestión de Base de Datos ------------------------------------ */
+
+.ag-inline-icon {
+  vertical-align: middle;
+  margin-right: var(--sp-1);
+}
+
+/* align-items: flex-end para que los botones queden a ras del selector, que
+   es más alto porque lleva su rótulo encima. */
+.ag-db-actions {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+.ag-db-table-picker {
+  min-width: 220px;
+}
+
+.ag-db-scope-note {
+  margin: 0 0 var(--sp-3);
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+.ag-row-actions-cell {
+  white-space: nowrap;
+}
+
+.ag-row-actions {
+  display: flex;
+  gap: var(--sp-1);
+}
+
+.ag-btn-danger,
+.ag-btn-danger-text {
+  background-color: #dc2626 !important;
+  background: #dc2626 !important;
+  color: #ffffff !important;
+  border: 1px solid #dc2626 !important;
+}
+
+.ag-btn-danger *,
+.ag-btn-danger-text * {
+  color: #ffffff !important;
+}
+
+.ag-btn-danger:hover:not(:disabled),
+.ag-btn-danger-text:hover:not(:disabled) {
+  background-color: #b91c1c !important;
+  background: #b91c1c !important;
+  color: #ffffff !important;
+  border-color: #b91c1c !important;
+}
+

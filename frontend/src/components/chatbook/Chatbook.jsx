@@ -195,7 +195,17 @@ function normalizeUserRole(role) {
 }
 
 function Avatar({ small = false }) {
-  return <img className={`chatbook-avatar${small ? ' chatbook-avatar--small' : ''}`} src="/chatbook/gato-cesmag.png" alt="Mascota de Chatbook" onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = '/Escudos.png'; }} />;
+  // Apuntaba a /chatbook/gato-cesmag.png, un archivo que nunca existió: cada
+  // mensaje del asistente provocaba un 404 en la consola y caía al escudo por
+  // el onError. Ahora apunta directamente al escudo, que sí está, y el texto
+  // alternativo dice lo que realmente se ve.
+  return (
+    <img
+      className={`chatbook-avatar${small ? ' chatbook-avatar--small' : ''}`}
+      src="/Escudos.png"
+      alt="Asistente Chatbook de la Universidad CESMAG"
+    />
+  );
 }
 
 function ProjectResult({ project, onSelect, isStudent }) {
@@ -441,7 +451,19 @@ export default function Chatbook() {
             </button>
           </header>
 
-          <div className="chatbook-body" ref={bodyRef}>
+          {/* aria-live="polite" es lo que hace que las respuestas del asistente
+              se lean solas al llegar. Sin esto, quien usa lector de pantalla
+              envía una pregunta y no se entera de que ha habido respuesta, ni
+              de dónde buscarla. "polite" y no "assertive" para que espere a que
+              la persona termine de escribir antes de interrumpir. */}
+          <div
+            className="chatbook-body"
+            ref={bodyRef}
+            role="log"
+            aria-live="polite"
+            aria-relevant="additions text"
+            aria-label="Conversación con el asistente"
+          >
             {messages.map((message) => {
               const hasCustomCard =
                 Boolean(message.teacher) ||

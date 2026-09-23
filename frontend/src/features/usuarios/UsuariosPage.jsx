@@ -1,4 +1,4 @@
-import { CalendarDays, GraduationCap, RefreshCw, Save, Users } from 'lucide-react';
+import { CalendarDays, GraduationCap, RefreshCw, Save } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import DashboardLayout from '../../components/layout/DashboardLayout';
 import Button from '../../components/ui/Button';

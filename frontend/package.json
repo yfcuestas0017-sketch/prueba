@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node node_modules/vite/bin/vite.js build",
-    "preview": "vite preview"
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint src"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.2.4",
@@ -22,8 +23,12 @@
     "tailwindcss": "^4.2.4"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^6.1.1",
+    "@eslint/js": "^10.0.1",
+    "@vitejs/plugin-react": "^6.0.5",
     "eslint": "^10.9.1",
-    "vite": "^8.3.0"
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.7",
+    "globals": "^17.12.0",
+    "vite": "^8.2.1"
   }
 }

@@ -82,7 +82,10 @@ export default class ErrorBoundary extends React.Component {
               Ocurrió una interrupción al renderizar esta vista. Haz clic a continuación para recargar la aplicación limpiamente.
             </p>
 
-            {this.state.error && (
+            {/* El detalle técnico solo se muestra en desarrollo. En producción,
+                una traza de pila en pantalla le dice a quien no debe cómo está
+                construida la aplicación por dentro. */}
+            {this.state.error && import.meta.env.DEV && (
               <div
                 style={{
                   textAlign: 'left',

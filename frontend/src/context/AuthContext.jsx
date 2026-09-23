@@ -1,8 +1,14 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import api from '../lib/api';
+import {
+  getToken,
+  getStoredUser,
+  saveSession,
+  clearSession,
+  EVENTO_SESION_EXPIRADA,
+} from '../lib/session';
 
 const AuthContext = createContext(null);
-const LOCAL_STORAGE_KEY = 'gradohub_user';
 
 function formatNameFromEmail(email) {
   const localPart = email.split('@')[0] || '';
@@ -53,7 +59,6 @@ function normalizeUser(storedUser) {
     roleId: storedUser.roleId ?? storedUser.role_id ?? null,
     permissions: Array.isArray(storedUser.permissions) ? storedUser.permissions : [],
     avatar: storedUser.avatar ?? null,
-    authMode: storedUser.authMode || 'postgres',
   };
 }
 
@@ -64,24 +69,27 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     let mounted = true;
 
+    /**
+     * Restaura la sesión al abrir la aplicación.
+     *
+     * Sin token no hay sesión, aunque haya quedado un usuario guardado: el
+     * usuario guardado solo sirve para pintar la interfaz de inmediato, y quien
+     * decide qué se puede hacer es el token que acompaña a cada petición.
+     */
     const restoreSession = () => {
       try {
-        const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
+        const token = getToken();
+        const restoredUser = token ? normalizeUser(getStoredUser()) : null;
 
-        if (!stored) {
-          if (mounted) setUser(null);
+        if (restoredUser) {
+          if (mounted) setUser(restoredUser);
           return;
         }
 
-        const restoredUser = normalizeUser(JSON.parse(stored));
-        if (restoredUser && mounted) {
-          setUser(restoredUser);
-          return;
-        }
-
-        localStorage.removeItem(LOCAL_STORAGE_KEY);
+        clearSession();
+        if (mounted) setUser(null);
       } catch {
-        localStorage.removeItem(LOCAL_STORAGE_KEY);
+        clearSession();
       } finally {
         if (mounted) setLoading(false);
       }
@@ -89,8 +97,16 @@ export function AuthProvider({ children }) {
 
     restoreSession();
 
+    // El cliente HTTP avisa cuando el servidor rechaza el token; la sesión se
+    // cierra en toda la aplicación a la vez.
+    const alExpirar = () => {
+      if (mounted) setUser(null);
+    };
+    window.addEventListener(EVENTO_SESION_EXPIRADA, alExpirar);
+
     return () => {
       mounted = false;
+      window.removeEventListener(EVENTO_SESION_EXPIRADA, alExpirar);
     };
   }, []);
 
@@ -106,7 +122,7 @@ export function AuthProvider({ children }) {
     const databaseUser = normalizeUser(response.user);
 
     setUser(databaseUser);
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(databaseUser));
+    saveSession(databaseUser, response.token);
     return databaseUser;
   };
 
@@ -114,13 +130,13 @@ export function AuthProvider({ children }) {
     const response = await api.register(fields);
     const newUser = normalizeUser(response.user);
     setUser(newUser);
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(newUser));
+    saveSession(newUser, response.token);
     return newUser;
   };
 
   const logout = async () => {
     setUser(null);
-    localStorage.removeItem(LOCAL_STORAGE_KEY);
+    clearSession();
   };
 
   const updateUser = (updates) => {
@@ -129,7 +145,7 @@ export function AuthProvider({ children }) {
     if (!updatedUser) return;
 
     setUser(updatedUser);
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updatedUser));
+    saveSession(updatedUser, null);
   };
 
   return (
