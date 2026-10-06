@@ -4,19 +4,14 @@ import {
   AlertCircle,
   Award,
   BookOpen,
-  Calendar,
   CheckCircle2,
   ChevronDown,
-  ExternalLink,
   GraduationCap,
-  Layers,
   Lock,
   Mail,
   Pencil,
   Save,
-  Tag,
   User,
-  UserCheck,
   X,
 } from 'lucide-react';
 import DashboardLayout from '../../components/layout/DashboardLayout';
@@ -39,6 +34,24 @@ function InfoRow({ icon: Icon, label, value, muted }) {
       </div>
     </div>
   );
+}
+
+function formatRoleName(role, userId) {
+  if (!role) {
+    const uid = String(userId || '').toLowerCase();
+    if (uid.startsWith('doc')) return 'Docente';
+    if (uid.startsWith('admin')) return 'Administrador';
+    if (uid.startsWith('pla')) return 'Planeación';
+    return 'Docente';
+  }
+  const r = String(role).toLowerCase();
+  if (r.includes('admin') && r.includes('general')) return 'Administrador General';
+  if (r.includes('admin')) return 'Administrador';
+  if (r.includes('docente') || r.includes('profesor')) return 'Docente';
+  if (r.includes('estudiante')) return 'Estudiante';
+  if (r.includes('planeaci')) return 'Planeación';
+  if (r.includes('coord')) return 'Coordinador';
+  return role.charAt(0).toUpperCase() + role.slice(1);
 }
 
 export default function AjustesPage() {
@@ -167,7 +180,7 @@ export default function AjustesPage() {
                 <h2 className="profile-name">{displayName}</h2>
                 <p className="profile-email">{displayEmail}</p>
                 <div className="profile-badges">
-                  <span className="profile-badge">{user?.role || 'Estudiante'}</span>
+                  <span className="profile-badge">{formatRoleName(user?.role, user?.id)}</span>
                   {programName !== 'Sin programa' && (
                     <span className="profile-badge profile-badge--muted">{programName}</span>
                   )}
@@ -200,7 +213,7 @@ export default function AjustesPage() {
                   <InfoRow icon={Mail} label="Correo electrónico" value={displayEmail} muted />
                   <InfoRow icon={Lock} label="Contraseña" value="••••••••••" muted />
                   <InfoRow icon={GraduationCap} label="Programa académico" value={programName} />
-                  <InfoRow icon={User} label="Rol" value={user?.role || 'Estudiante'} />
+                  <InfoRow icon={User} label="Rol" value={formatRoleName(user?.role, user?.id)} />
                 </div>
               )}
             </div>
@@ -316,8 +329,8 @@ export default function AjustesPage() {
 
                 <form onSubmit={handleSave} className="edit-form">
                   <div className="field">
-                    <label className="field-label">Nombre completo *</label>
-                    <input
+                    <label className="field-label" htmlFor="ajustes-campo-1">Nombre completo *</label>
+                    <input id="ajustes-campo-1"
                       type="text"
                       required
                       className="field-input"
@@ -329,11 +342,11 @@ export default function AjustesPage() {
                   </div>
 
                   <div className="field">
-                    <label className="field-label">
+                    <label className="field-label" htmlFor="ajustes-campo-2">
                       Correo electrónico
                       <span className="field-lock">🔒 No editable</span>
                     </label>
-                    <input
+                    <input id="ajustes-campo-2"
                       type="email"
                       className="field-input field-input--readonly"
                       value={displayEmail}
@@ -343,9 +356,9 @@ export default function AjustesPage() {
                   </div>
 
                   <div className="field">
-                    <label className="field-label">Programa académico</label>
+                    <label className="field-label" htmlFor="ajustes-campo-3">Programa académico</label>
                     <div className="select-wrap">
-                      <select
+                      <select id="ajustes-campo-3"
                         className="field-input field-select"
                         value={form.programId}
                         onChange={(e) => setForm((p) => ({ ...p, programId: e.target.value }))}
@@ -405,7 +418,7 @@ export default function AjustesPage() {
                 </div>
                 <div className="summary-row">
                   <span className="summary-key">Rol</span>
-                  <span className="summary-val">{user?.role || 'Estudiante'}</span>
+                  <span className="summary-val">{formatRoleName(user?.role, user?.id)}</span>
                 </div>
               </div>
             </div>

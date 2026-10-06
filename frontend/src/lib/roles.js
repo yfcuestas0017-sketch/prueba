@@ -15,15 +15,17 @@ const GENERAL_ADMIN_ROLE_NAMES = [
   'administrador general del sistema',
 ];
 
-// "Administrador de Programa" reutiliza el rol "Administrador" (sin la
-// palabra "general") que se le asigna, además de "Docente", a un docente
-// promovido desde Administración General.
+// "Administrador de Programa" incluye 'Administrador programa', 'Administrador',
+// 'Administrador de programa', etc. Cualquier rol administrativo que no sea general.
 const PROGRAM_ADMIN_ROLE_NAMES = [
   'administrador',
   'admin',
+  'administrador programa',
+  'admin programa',
   'administrador de programa',
   'admin de programa',
   'administrador del programa',
+  'admin del programa',
 ];
 
 const DOCENTE_ROLE_NAMES = ['docente', 'profesor'];
@@ -33,15 +35,36 @@ export function normalizeRoleName(role) {
 }
 
 export function isGeneralAdminRoleName(role) {
-  return GENERAL_ADMIN_ROLE_NAMES.includes(normalizeRoleName(role));
+  const n = normalizeRoleName(role);
+  if (!n) return false;
+  return (
+    GENERAL_ADMIN_ROLE_NAMES.includes(n) ||
+    n.includes('administrador general') ||
+    n.includes('admin general')
+  );
 }
 
 export function isProgramAdminRoleName(role) {
-  return PROGRAM_ADMIN_ROLE_NAMES.includes(normalizeRoleName(role));
+  const n = normalizeRoleName(role);
+  if (!n) return false;
+  if (isGeneralAdminRoleName(n)) return false;
+  return (
+    PROGRAM_ADMIN_ROLE_NAMES.includes(n) ||
+    n.includes('administrador programa') ||
+    n.includes('admin programa') ||
+    n.includes('administrador de programa') ||
+    n.includes('admin de programa') ||
+    n.includes('administrador del programa') ||
+    n === 'administrador' ||
+    n === 'admin' ||
+    ((n.includes('administrador') || n.includes('admin')) && !n.includes('general'))
+  );
 }
 
 export function isDocenteRoleName(role) {
-  return DOCENTE_ROLE_NAMES.includes(normalizeRoleName(role));
+  const n = normalizeRoleName(role);
+  if (!n) return false;
+  return DOCENTE_ROLE_NAMES.includes(n) || n.includes('docente') || n.includes('profesor');
 }
 
 // Un usuario puede tener múltiples roles (p. ej. Docente + Administrador

@@ -26,6 +26,8 @@ const PROJECT_SELECT = `
     p.created_at,
     p.finished_at,
     p.letter_link,
+    p.general_objective,
+    p.specific_objectives,
     p.status_id,
     p.modality_id,
     p.research_line_id,

@@ -9,6 +9,8 @@ import { fileURLToPath } from 'url';
 import apiRouter from './routes/index.js';
 import { setupProjectBankTable } from './migrations/create_project_bank.js';
 import { setupProjectBankHistoriesTable } from './migrations/create_project_bank_histories.js';
+import { setupProjectObjectivesColumns } from './migrations/add_project_objectives.js';
+import { syncAssignedProjectBankIdeas } from './controllers/projectBank.controller.js';
 import { registerAdminDbCrudRoutes } from './admin_db_crud.js';
 import { pool } from './config/db.js';
 import { getJwtSecret } from './utils/token.js';
@@ -105,12 +107,66 @@ function verificarConfiguracion() {
   }
 }
 
+/**
+ * Asigna el rol Docente/Estudiante a usuarios que no tienen ninguno, deduciéndolo
+ * del identificador ("doc...", "est...") o del correo ("...docente...").
+ *
+ * Es útil para datos sembrados en desarrollo, pero NO debe correr por defecto en
+ * producción: /api/auth/register es público y no valida el correo, así que
+ * cualquiera podría registrarse con un correo que contenga "docente" y recibir
+ * el rol Docente en el siguiente reinicio del servidor. Por eso es opt-in:
+ * solo se ejecuta si SYNC_USER_ROLES=true.
+ */
+async function syncUserRoles(pool) {
+  if (process.env.SYNC_USER_ROLES !== 'true') return;
+  try {
+    // 1. Docentes sin rol asignado
+    const docFix = await pool.query(`
+      INSERT INTO public.user_roles (user_id, role_id)
+      SELECT u.user_id, 2
+      FROM public.users u
+      WHERE (u.user_id ILIKE 'doc%' OR u.email ILIKE '%docente%' OR u.user_id IN (
+        'doc001', 'doc002', 'doc003', 'doc004', 'doc005', 'doc006', 'doc007',
+        'doc008', 'doc009', 'doc010', 'doc011', 'doc012', 'doc013', 'doc014',
+        'doc015', 'doc016', 'doc017', 'doc018', 'doc019'
+      ))
+      AND NOT EXISTS (
+        SELECT 1 FROM public.user_roles ur WHERE ur.user_id = u.user_id AND ur.role_id = 2
+      )
+      ON CONFLICT DO NOTHING
+    `);
+    if (docFix.rowCount > 0) {
+      console.log(`[Sync Roles] Se asignó rol Docente (role_id 2) a ${docFix.rowCount} usuarios.`);
+    }
+
+    // 2. Estudiantes sin rol asignado
+    const estFix = await pool.query(`
+      INSERT INTO public.user_roles (user_id, role_id)
+      SELECT u.user_id, 3
+      FROM public.users u
+      WHERE (u.user_id ILIKE 'est%' OR u.email ILIKE '%estudiante%')
+      AND NOT EXISTS (
+        SELECT 1 FROM public.user_roles ur WHERE ur.user_id = u.user_id AND ur.role_id = 3
+      )
+      ON CONFLICT DO NOTHING
+    `);
+    if (estFix.rowCount > 0) {
+      console.log(`[Sync Roles] Se asignó rol Estudiante (role_id 3) a ${estFix.rowCount} usuarios.`);
+    }
+  } catch (err) {
+    console.error('[Sync Roles] Error al sincronizar roles de usuarios:', err.message);
+  }
+}
+
 async function initMigrations() {
   await setupProjectBankTable();
   await setupProjectBankHistoriesTable();
+  await setupProjectObjectivesColumns();
   await registerAdminDbCrudRoutes(app, pool);
+  await syncAssignedProjectBankIdeas(pool);
+  await syncUserRoles(pool);
   await pool.query('SELECT 1'); // Verificar la conexión a la base de datos
-  console.log('[Backend BaseDatosGrado] Migraciones e índices verificados.');
+  console.log('[Backend BaseDatosGrado] Migraciones, sincronización de ideas, objetivos y roles verificados.');
 }
 
 /**

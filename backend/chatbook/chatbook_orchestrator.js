@@ -38,19 +38,28 @@ export function classifyChatbookQuery(norm, rawText = '') {
     return 'BOTH';
   }
 
-  const explicitRegulationMention = /\b(reglamento|acuerdo 105|acuerdo 064|normativa|norma|articulo\s+\d+|capitulo\s+[ivxldcm]+|paragrafo)\b/i.test(norm);
+  const explicitRegulationMention = /\b(reglamento|acuerdo\s*105|acuerdo\s*064|acuerdo|normativa|norma|normas|estatuto|articulo\s*\d+|art\.?\s*\d+|capitulo\s*[ivxldcm\d]+|paragrafo|literal)\b/i.test(norm);
 
   const asksPureNormativeConcept = (
-    /\b(que es la coterminalidad|que es coterminalidad|que requisitos tiene la coterminalidad|requisitos de coterminalidad)\b/i.test(norm) ||
-    /\b(que es creacion de empresa|requisitos de creacion de empresa|estancia en linea de investigacion|estudio de factibilidad|investigacion creacion)\b/i.test(norm) ||
-    /\b(que dice el reglamento|segun el reglamento|establece el reglamento|segun el acuerdo|estipula el acuerdo)\b/i.test(norm) ||
-    /\b(como se conforma el jurado|quienes conforman el jurado|funciones del jurado|funciones del asesor|quien puede ser jurado|quien puede ser asesor|designacion de jurados)\b/i.test(norm) ||
-    /\b(como se evalua|como es la sustentacion|requisitos de sustentacion|criterios de evaluacion|concepto de jurados|causales de reprobacion)\b/i.test(norm) ||
-    /\b(que distinciones existen|criterios para meritorio|criterios para laureado|requisitos para meritorio|requisitos para laureado|distincion cum laude|magna cum laude|summa cum laude)\b/i.test(norm) ||
-    /\b(que pasa si hay plagio|sanciones por plagio|faltas disciplinarias|regimen disciplinario|fraude academico)\b/i.test(norm) ||
-    /\b(fases del trabajo de grado|etapas del trabajo de grado|requisitos de la idea|requisitos del anteproyecto|extension del anteproyecto|extension del informe final)\b/i.test(norm) ||
-    /\b(que modalidades de grado existen segun el reglamento|cuales son las modalidades del reglamento|que opciones de grado hay segun el reglamento|opciones de grado del acuerdo)\b/i.test(norm) ||
-    /\b(cambio de asesor|renuncia de asesor|separacion de integrantes|disolucion de grupos)\b/i.test(norm)
+    // Sustentación y defensa
+    /\b(sustentar|sustentacion|sustentaciones|defensa oral|defensa de tesis|defensa del trabajo|tiempo de sustentacion|duracion de la sustentacion|preguntas de jurados|asistir a sustentaciones)\b/i.test(norm) ||
+    // Requisitos generales y específicos
+    /\b(que requisitos|cuales son los requisitos|requisitos para|requisitos de|que se necesita para|que necesito para|condiciones para|como se aprueba|como se evalua|como califica|criterios de evaluacion|escala de calificacion|rubrica|calificacion minima|nota minima|reprobar|reprobado|segunda oportunidad|75%|creditos requeridos|porcentaje de creditos)\b/i.test(norm) ||
+    // Fases y documentos (idea, anteproyecto, informe final)
+    /\b(fases del trabajo|etapas del trabajo|etapas de grado|fases de grado|requisitos de la idea|elaboracion de la idea|anteproyecto|informe final|extension del anteproyecto|extension del informe|examen de valoracion|seguimiento al desarrollo|propuesta de grado)\b/i.test(norm) ||
+    // Asesores y Jurados
+    /\b(asesor|asesores|director de tesis|directores|jurado|jurados|evaluador|evaluadores)\b/i.test(norm) && /\b(funciones|quien puede|quienes pueden|requisitos|designacion|conformacion|nombramiento|cambio|renuncia|perfil|tiempo|plazo)\b/i.test(norm) ||
+    // Distinciones académicas
+    /\b(meritorio|meritoria|laureado|laureada|cum laude|magna cum laude|summa cum laude|distincion|distinciones)\b/i.test(norm) ||
+    // Régimen disciplinario, plagio y ética
+    /\b(plagio|fraude|fraude academico|sancion|sanciones|regimen disciplinario|faltas disciplinarias|derechos de autor|propiedad intelectual)\b/i.test(norm) ||
+    // Modalidades normativas
+    /\b(que modalidades|cuales son las modalidades|que opciones de grado existen|modalidades de trabajo de grado|opciones de grado del reglamento|acuerdo 105 modalidades)\b/i.test(norm) ||
+    /\b(que es coterminalidad|requisitos de coterminalidad|que es pasantia|requisitos de pasantia|que es monografia|requisitos de monografia|investigacion creacion|creacion de empresa|estudio de factibilidad|certificacion internacional|diplomado|judicatura|practica social)\b/i.test(norm) ||
+    // Procedimientos y cambios
+    /\b(cambio de asesor|renuncia de asesor|separacion de integrantes|disolucion de grupo|disolucion de grupos|cambio de tema|prorroga|cancelacion de trabajo de grado|plazo maximo|tiempo maximo)\b/i.test(norm) ||
+    // Consultas directas al texto normativo
+    /\b(que dice el reglamento|segun el reglamento|establece el reglamento|estipula el reglamento|que dice el acuerdo|segun el acuerdo|estipula el acuerdo)\b/i.test(norm)
   );
 
   const isNormativeExploration = explicitRegulationMention || asksPureNormativeConcept;

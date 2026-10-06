@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { X, ChevronDown, Save, Loader2, Plus, Trash2, Users, History } from 'lucide-react';
 import api from '../../lib/api';
 import './EditProjectModal.css';
@@ -28,11 +28,19 @@ function Avatar({ name, size = 30 }) {
 }
 
 export default function EditProjectModal({ project, statuses, modalities, lines, sublines, degreeOptions = [], user, onClose, onSaved, onOpenHistory }) {
-  const isAdmin = user?.role?.toLowerCase() === 'administrador';
+  const roleLower = String(user?.role || '').toLowerCase();
+  const isAdmin = roleLower === 'administrador' || roleLower === 'administrador general' || roleLower.includes('admin');
+  const isAdvisor = (project.advisorsList || []).some(a => String(a.id) === String(user?.id)) || project.myRole === 'asesor';
+  const isApprovedOrFinished = ['finalizado', 'terminado', 'completado', 'aprobado', 'sustentado'].some(w => String(project.statusName || project.status || '').toLowerCase().includes(w));
+  const canEditProject = (isAdmin || isAdvisor) && (!isApprovedOrFinished || isAdmin);
+  const isOwnerAuthor = (project.isOwned || project.myRole === 'autor') && !isAdmin && !isAdvisor;
+  const canManageTeam = isAdmin || (isOwnerAuthor && !isApprovedOrFinished);
 
   const [form, setForm] = useState({
     title: project.title || '',
     code: project.code || '',
+    generalObjective: project.generalObjective || project.general_objective || '',
+    specificObjectives: project.specificObjectives || project.specific_objectives || '',
     statusId: project.statusId || '',
     modalityId: project.modalityId || '',
     lineId: project.lineId || '',
@@ -44,8 +52,7 @@ export default function EditProjectModal({ project, statuses, modalities, lines,
   const [formError, setFormError] = useState('');
   const [formSuccess, setFormSuccess] = useState('');
 
-
-  // ── Equipo del proyecto (solo admin) ──────────────────────────────────
+  // ── Equipo del proyecto ──────────────────────────────────
   const initialTeam = [
     ...(project.authorsList || []).map(p => ({ id: p.id, name: p.name, email: p.email, role: p.role || 'autor' })),
     ...(project.advisorsList || []).map(p => ({ id: p.id, name: p.name, email: p.email, role: 'asesor' })),
@@ -53,7 +60,7 @@ export default function EditProjectModal({ project, statuses, modalities, lines,
   ];
   const [team, setTeam] = useState(initialTeam);
   const [newEmail, setNewEmail] = useState('');
-  const [newRole, setNewRole] = useState('asesor');
+  const [newRole, setNewRole] = useState(isAdmin ? 'asesor' : 'coautor');
   const [verifying, setVerifying] = useState(false);
   const [teamError, setTeamError] = useState('');
 
@@ -90,7 +97,6 @@ export default function EditProjectModal({ project, statuses, modalities, lines,
     );
   }, [sublines, form.lineId]);
 
-
   const handleAddTeamMember = async () => {
     const email = newEmail.trim();
     if (!email) return;
@@ -103,12 +109,13 @@ export default function EditProjectModal({ project, statuses, modalities, lines,
         setTeamError('Usuario no encontrado en el sistema.');
         return;
       }
-      const exists = team.find(p => String(p.id) === String(found.user_id) && p.role === newRole);
+      const roleToAdd = isAdmin ? newRole : 'coautor';
+      const exists = team.find(p => String(p.id) === String(found.user_id));
       if (exists) {
-        setTeamError('Esta persona ya tiene ese rol asignado en el proyecto.');
+        setTeamError('Esta persona ya forma parte del equipo del proyecto.');
         return;
       }
-      setTeam(prev => [...prev, { id: found.user_id, name: found.full_name, email: found.email, role: newRole }]);
+      setTeam(prev => [...prev, { id: found.user_id, name: found.full_name, email: found.email, role: roleToAdd }]);
       setNewEmail('');
     } catch (err) {
       setTeamError(err.message || 'Usuario no encontrado.');
@@ -118,14 +125,17 @@ export default function EditProjectModal({ project, statuses, modalities, lines,
   };
 
   const handleRemoveTeamMember = (id, role) => {
+    if (!isAdmin && role === 'autor') {
+      setTeamError('No puedes removerte a ti mismo como autor principal.');
+      return;
+    }
     setTeam(prev => prev.filter(p => !(String(p.id) === String(id) && p.role === role)));
   };
 
   const handleSave = async (e) => {
     e.preventDefault();
-    if (!form.title.trim()) { setFormError('El título es obligatorio.'); return; }
-    if (isAdmin && team.filter(p => p.role === 'autor' || p.role === 'coautor').length === 0) {
-      setFormError('El proyecto debe tener al menos un autor.');
+    if (!canEditProject && !isOwnerAuthor) {
+      setFormError('No tienes permisos para modificar este proyecto.');
       return;
     }
 
@@ -133,20 +143,25 @@ export default function EditProjectModal({ project, statuses, modalities, lines,
     setFormError('');
 
     try {
-      const payload = {
-        title: form.title.trim(),
-        code: form.code.trim() || null,
-        statusId: form.statusId ? Number(form.statusId) : null,
-        modalityId: form.modalityId ? Number(form.modalityId) : null,
-        lineId: form.lineId ? Number(form.lineId) : null,
-        sublineId: form.sublineId ? Number(form.sublineId) : null,
-        degreeOptionId: form.degreeOptionId ? Number(form.degreeOptionId) : null,
-        letterLink: form.letterLink.trim() || null,
-      };
+      if (canEditProject) {
+        if (!form.title.trim()) { setFormError('El título es obligatorio.'); setSaving(false); return; }
+        const payload = {
+          title: form.title.trim(),
+          code: form.code.trim() || null,
+          generalObjective: form.generalObjective.trim() || null,
+          specificObjectives: form.specificObjectives.trim() || null,
+          statusId: form.statusId ? Number(form.statusId) : null,
+          modalityId: form.modalityId ? Number(form.modalityId) : null,
+          lineId: form.lineId ? Number(form.lineId) : null,
+          sublineId: form.sublineId ? Number(form.sublineId) : null,
+          degreeOptionId: form.degreeOptionId ? Number(form.degreeOptionId) : null,
+          letterLink: form.letterLink.trim() || null,
+        };
 
-      await api.updateProject(project.id, payload, user?.id);
+        await api.updateProject(project.id, payload, user?.id);
+      }
 
-      if (isAdmin) {
+      if (isAdmin || isAdvisor || isOwnerAuthor) {
         await api.updateProjectParticipants(project.id, team.map(p => ({ id: p.id, role: p.role })), user?.id);
       }
 
@@ -165,7 +180,9 @@ export default function EditProjectModal({ project, statuses, modalities, lines,
         {/* HEADER */}
         <div className="epm-header">
           <div>
-            <span className="epm-eyebrow">Editar proyecto #{project.id}</span>
+            <span className="epm-eyebrow">
+              {canEditProject ? `Editar proyecto #${project.id}` : `Ficha del proyecto #${project.id}`}
+            </span>
             <h2 className="epm-title">{project.title}</h2>
             <span className="epm-code">{project.code || 'Sin código'}</span>
           </div>
@@ -180,6 +197,16 @@ export default function EditProjectModal({ project, statuses, modalities, lines,
         {/* BODY */}
         <div className="epm-body">
           <div className="epm-left">
+            {isApprovedOrFinished ? (
+              <div style={{ marginBottom: 14, background: 'color-mix(in srgb, #22c55e 12%, transparent)', border: '1px solid #22c55e', color: 'var(--text-primary)', padding: '12px 14px', borderRadius: 8, fontSize: '0.84rem' }}>
+                🎓 <strong>Proyecto Aprobado y Culminado:</strong> Este trabajo de grado ha completado todas sus fases investigativas y ha sido aprobado satisfactoriamente. Se encuentra en modo de solo lectura.
+              </div>
+            ) : !canEditProject && (
+              <div style={{ marginBottom: 14, background: 'color-mix(in srgb, var(--accent-primary) 10%, transparent)', border: '1px solid var(--accent-primary)', color: 'var(--text-primary)', padding: '10px 14px', borderRadius: 8, fontSize: '0.82rem' }}>
+                📌 <strong>Modo de solo lectura:</strong> Como estudiante, los datos y objetivos del proyecto solo pueden ser editados y guardados por el <strong>Docente Asesor</strong> asignado o los <strong>Administradores</strong>.
+              </div>
+            )}
+
             {(formError || formSuccess) && (
               <div className={`epm-alert ${formError ? 'epm-alert--error' : 'epm-alert--success'}`}>
                 {formError || formSuccess}
@@ -191,41 +218,89 @@ export default function EditProjectModal({ project, statuses, modalities, lines,
 
               <div className="epm-grid2">
                 <div className="epm-field epm-span2">
-                  <label>Título *</label>
-                  <input
+                  <label htmlFor="edit-project-modal-campo-1">Título {canEditProject && '*'}</label>
+                  <input id="edit-project-modal-campo-1"
                     value={form.title}
                     onChange={e => setForm(p => ({ ...p, title: e.target.value }))}
-                    required
+                    disabled={!canEditProject}
+                    readOnly={!canEditProject}
+                    required={canEditProject}
+                  />
+                </div>
+
+                <div className="epm-field epm-span2">
+                  <label htmlFor="edit-project-general-obj">Objetivo general</label>
+                  <textarea
+                    id="edit-project-general-obj"
+                    rows={3}
+                    value={form.generalObjective}
+                    onChange={e => setForm(p => ({ ...p, generalObjective: e.target.value }))}
+                    placeholder={canEditProject ? "Define el propósito principal de la investigación..." : "Sin objetivo general registrado"}
+                    disabled={!canEditProject}
+                    readOnly={!canEditProject}
+                    style={{ width: '100%', resize: 'vertical', borderRadius: 8, padding: '8px 12px', border: '1px solid var(--border-color)', background: canEditProject ? 'var(--bg-secondary)' : 'var(--bg-card)', color: 'var(--text-primary)', fontSize: '0.86rem' }}
+                  />
+                </div>
+
+                <div className="epm-field epm-span2">
+                  <label htmlFor="edit-project-specific-objs">Objetivos específicos</label>
+                  <textarea
+                    id="edit-project-specific-objs"
+                    rows={4}
+                    value={form.specificObjectives}
+                    onChange={e => setForm(p => ({ ...p, specificObjectives: e.target.value }))}
+                    placeholder={canEditProject ? "1. Diagnosticar... 2. Diseñar... 3. Implementar..." : "Sin objetivos específicos registrados"}
+                    disabled={!canEditProject}
+                    readOnly={!canEditProject}
+                    style={{ width: '100%', resize: 'vertical', borderRadius: 8, padding: '8px 12px', border: '1px solid var(--border-color)', background: canEditProject ? 'var(--bg-secondary)' : 'var(--bg-card)', color: 'var(--text-primary)', fontSize: '0.86rem' }}
                   />
                 </div>
 
                 <div className="epm-field">
-                  <label>Estado</label>
-                  <div className="epm-select-wrap">
-                    <select value={form.statusId} onChange={e => setForm(p => ({ ...p, statusId: e.target.value }))}>
-                      <option value="">— Selecciona —</option>
-                      {statuses.map(s => <option key={s.status_id} value={s.status_id}>{s.name}</option>)}
-                    </select>
-                    <ChevronDown size={13} className="epm-chevron" />
-                  </div>
-                </div>
-
-                <div className="epm-field">
-                  <label>Modalidad</label>
-                  <div className="epm-select-wrap">
-                    <select value={form.modalityId} onChange={e => setForm(p => ({ ...p, modalityId: e.target.value }))}>
-                      <option value="">— Selecciona —</option>
-                      {modalities.map(m => <option key={m.modality_id} value={m.modality_id}>{m.name}</option>)}
-                    </select>
-                    <ChevronDown size={13} className="epm-chevron" />
-                  </div>
-                </div>
-
-                <div className="epm-field">
-                  <label>Opción de grado</label>
+                  <label htmlFor="edit-project-modal-campo-2">Estado</label>
                   {isAdmin ? (
                     <div className="epm-select-wrap">
-                      <select
+                      <select id="edit-project-modal-campo-2" value={form.statusId} onChange={e => setForm(p => ({ ...p, statusId: e.target.value }))}>
+                        <option value="">— Selecciona —</option>
+                        {statuses.map(s => <option key={s.status_id} value={s.status_id}>{s.name}</option>)}
+                      </select>
+                      <ChevronDown size={13} className="epm-chevron" />
+                    </div>
+                  ) : (
+                    <input
+                      type="text"
+                      value={statuses.find(s => String(s.status_id) === String(form.statusId))?.name || project.statusName || 'En Formulación'}
+                      readOnly
+                      disabled
+                    />
+                  )}
+                </div>
+
+                <div className="epm-field">
+                  <label htmlFor="edit-project-modal-campo-3">Modalidad</label>
+                  {canEditProject ? (
+                    <div className="epm-select-wrap">
+                      <select id="edit-project-modal-campo-3" value={form.modalityId} onChange={e => setForm(p => ({ ...p, modalityId: e.target.value }))}>
+                        <option value="">— Selecciona —</option>
+                        {modalities.map(m => <option key={m.modality_id} value={m.modality_id}>{m.name}</option>)}
+                      </select>
+                      <ChevronDown size={13} className="epm-chevron" />
+                    </div>
+                  ) : (
+                    <input
+                      type="text"
+                      value={modalities.find(m => String(m.modality_id) === String(form.modalityId))?.name || project.modality || 'Sin modalidad'}
+                      readOnly
+                      disabled
+                    />
+                  )}
+                </div>
+
+                <div className="epm-field">
+                  <label htmlFor="edit-project-modal-campo-4">Opción de grado</label>
+                  {isAdmin ? (
+                    <div className="epm-select-wrap">
+                      <select id="edit-project-modal-campo-4"
                         value={form.degreeOptionId || ''}
                         onChange={e => setForm(p => ({ ...p, degreeOptionId: e.target.value }))}
                       >
@@ -253,48 +328,77 @@ export default function EditProjectModal({ project, statuses, modalities, lines,
                 </div>
 
                 <div className="epm-field">
-                  <label>Línea</label>
-                  <div className="epm-select-wrap">
-                    <select value={form.lineId} onChange={e => setForm(p => ({ ...p, lineId: e.target.value, sublineId: '' }))}>
-                      <option value="">— Selecciona —</option>
-                      {filteredLines.map(l => <option key={l.research_line_id} value={l.research_line_id}>{l.name}</option>)}
-                    </select>
-                    <ChevronDown size={13} className="epm-chevron" />
-                  </div>
+                  <label htmlFor="edit-project-modal-campo-5">Línea</label>
+                  {canEditProject ? (
+                    <div className="epm-select-wrap">
+                      <select id="edit-project-modal-campo-5" value={form.lineId} onChange={e => setForm(p => ({ ...p, lineId: e.target.value, sublineId: '' }))}>
+                        <option value="">— Selecciona —</option>
+                        {filteredLines.map(l => <option key={l.research_line_id} value={l.research_line_id}>{l.name}</option>)}
+                      </select>
+                      <ChevronDown size={13} className="epm-chevron" />
+                    </div>
+                  ) : (
+                    <input
+                      type="text"
+                      value={lines.find(l => String(l.research_line_id) === String(form.lineId))?.name || project.line || 'Sin línea'}
+                      readOnly
+                      disabled
+                    />
+                  )}
                 </div>
 
                 <div className="epm-field">
-                  <label>Sublínea</label>
-                  <div className="epm-select-wrap">
-                    <select value={form.sublineId} onChange={e => setForm(p => ({ ...p, sublineId: e.target.value }))} disabled={!form.lineId}>
-                      <option value="">— Selecciona —</option>
-                      {filteredSublines.map(s => <option key={s.research_subline_id} value={s.research_subline_id}>{s.name}</option>)}
-                    </select>
-                    <ChevronDown size={13} className="epm-chevron" />
-                  </div>
+                  <label htmlFor="edit-project-modal-campo-6">Sublínea</label>
+                  {canEditProject ? (
+                    <div className="epm-select-wrap">
+                      <select id="edit-project-modal-campo-6" value={form.sublineId} onChange={e => setForm(p => ({ ...p, sublineId: e.target.value }))} disabled={!form.lineId}>
+                        <option value="">— Selecciona —</option>
+                        {filteredSublines.map(s => <option key={s.research_subline_id} value={s.research_subline_id}>{s.name}</option>)}
+                      </select>
+                      <ChevronDown size={13} className="epm-chevron" />
+                    </div>
+                  ) : (
+                    <input
+                      type="text"
+                      value={sublines.find(s => String(s.research_subline_id) === String(form.sublineId))?.name || project.subline || 'Sin sublínea'}
+                      readOnly
+                      disabled
+                    />
+                  )}
                 </div>
 
                 <div className="epm-field epm-span2">
-                  <label>Carta / link</label>
-                  <input
+                  <label htmlFor="edit-project-modal-campo-7">Carta / link</label>
+                  <input id="edit-project-modal-campo-7"
                     type="url"
                     value={form.letterLink}
                     onChange={e => setForm(p => ({ ...p, letterLink: e.target.value }))}
+                    disabled={!canEditProject}
+                    readOnly={!canEditProject}
                   />
                 </div>
               </div>
 
-              {/* ── EQUIPO DEL PROYECTO (solo admin) ───────────────── */}
-              {isAdmin && (
+              {/* ── EQUIPO DEL PROYECTO ───────────────── */}
+              {(isAdmin || isAdvisor || isOwnerAuthor) && (
                 <>
                   <div className="epm-section-title" style={{ marginTop: 22, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <Users size={14} /> Equipo del proyecto
+                    <Users size={14} /> {isAdmin || isAdvisor ? 'Equipo del proyecto' : 'Integrantes del proyecto (Co-autores)'}
                   </div>
+
+                  {isOwnerAuthor && (
+                    <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 10, marginTop: -4 }}>
+                      Puedes agregar a otros estudiantes como co-autores ingresando su correo institucional.
+                    </p>
+                  )}
 
                   {teamError && <p className="epm-inline-error" style={{ marginBottom: 8 }}>{teamError}</p>}
 
                   {ROLE_ORDER.map(role => {
                     const members = team.filter(p => p.role === role);
+                    if (isOwnerAuthor && (role === 'asesor' || role === 'jurado') && members.length === 0) {
+                      return null;
+                    }
                     return (
                       <div key={role} style={{ marginBottom: 12 }}>
                         <span style={{
@@ -306,67 +410,88 @@ export default function EditProjectModal({ project, statuses, modalities, lines,
                         {members.length === 0 ? (
                           <div className="epm-empty" style={{ padding: '8px 0' }}>Sin {ROLE_LABELS[role].toLowerCase()}(es) asignado(s).</div>
                         ) : (
-                          members.map(p => (
-                            <div key={`${role}-${p.id}`} className="epm-person-row">
-                              <Avatar name={p.name} />
-                              <div className="epm-person-info">
-                                <span className="epm-person-name">{p.name}</span>
-                                <span className="epm-person-role">{p.email}</span>
+                          members.map(p => {
+                            const canDelete = isAdmin || (isOwnerAuthor && !isApprovedOrFinished && role === 'coautor');
+                            return (
+                              <div key={`${role}-${p.id}`} className="epm-person-row">
+                                <Avatar name={p.name} />
+                                <div className="epm-person-info">
+                                  <span className="epm-person-name">
+                                    {p.name} {(!isAdmin && role === 'autor') && <span style={{ fontSize: '0.7rem', color: 'var(--accent-primary)', fontWeight: 600 }}>(Autor Principal)</span>}
+                                  </span>
+                                  <span className="epm-person-role">{p.email}</span>
+                                </div>
+                                <div className="epm-person-actions">
+                                  {canDelete ? (
+                                    <button
+                                      type="button"
+                                      className="epm-icon-btn epm-icon-btn--danger"
+                                      title={`Quitar como ${ROLE_LABELS[role].toLowerCase()}`}
+                                      onClick={() => handleRemoveTeamMember(p.id, role)}
+                                    >
+                                      <Trash2 size={13} />
+                                    </button>
+                                  ) : (
+                                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', paddingRight: 6 }}>Asignado</span>
+                                  )}
+                                </div>
                               </div>
-                              <div className="epm-person-actions">
-                                <button
-                                  type="button"
-                                  className="epm-icon-btn epm-icon-btn--danger"
-                                  title={`Quitar como ${ROLE_LABELS[role].toLowerCase()}`}
-                                  onClick={() => handleRemoveTeamMember(p.id, role)}
-                                >
-                                  <Trash2 size={13} />
-                                </button>
-                              </div>
-                            </div>
-                          ))
+                            );
+                          })
                         )}
                       </div>
                     );
                   })}
 
-                  <div className="epm-add-row" style={{ alignItems: 'center' }}>
-                    <Plus size={13} style={{ color: 'var(--accent-primary)', flexShrink: 0 }} />
-                    <input
-                      className="epm-inline-input"
-                      placeholder="Correo de la persona a agregar"
-                      value={newEmail}
-                      onChange={e => { setNewEmail(e.target.value); setTeamError(''); }}
-                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddTeamMember(); } }}
-                    />
-                    <select
-                      value={newRole}
-                      onChange={e => setNewRole(e.target.value)}
-                      style={{
-                        fontSize: '.78rem', padding: '6px 8px', borderRadius: 6,
-                        border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)',
-                      }}
-                    >
-                      <option value="autor">Autor</option>
-                      <option value="coautor">Co-autor</option>
-                      <option value="asesor">Asesor</option>
-                      <option value="jurado">Jurado</option>
-                    </select>
-                    <button type="button" className="epm-add-btn" onClick={handleAddTeamMember} disabled={verifying}>
-                      {verifying ? <Loader2 size={12} className="epm-spin" /> : 'Agregar'}
-                    </button>
-                  </div>
+                  {canManageTeam && (
+                    <div className="epm-add-row" style={{ alignItems: 'center' }}>
+                      <Plus size={13} style={{ color: 'var(--accent-primary)', flexShrink: 0 }} />
+                      <input
+                        className="epm-inline-input"
+                        placeholder={isAdmin ? "Correo de la persona a agregar" : "Correo institucional del co-autor a agregar"}
+                        value={newEmail}
+                        onChange={e => { setNewEmail(e.target.value); setTeamError(''); }}
+                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddTeamMember(); } }}
+                      />
+                      {isAdmin ? (
+                        <select
+                          value={newRole}
+                          onChange={e => setNewRole(e.target.value)}
+                          style={{
+                            fontSize: '.78rem', padding: '6px 8px', borderRadius: 6,
+                            border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)',
+                          }}
+                        >
+                          <option value="autor">Autor</option>
+                          <option value="coautor">Co-autor</option>
+                          <option value="asesor">Asesor</option>
+                          <option value="jurado">Jurado</option>
+                        </select>
+                      ) : (
+                        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600, padding: '0 4px' }}>
+                          Co-autor
+                        </span>
+                      )}
+                      <button type="button" className="epm-add-btn" onClick={handleAddTeamMember} disabled={verifying}>
+                        {verifying ? <Loader2 size={12} className="epm-spin" /> : (isAdmin ? 'Agregar' : 'Agregar Co-autor')}
+                      </button>
+                    </div>
+                  )}
                 </>
               )}
 
               <div className="epm-form-actions">
-                <button type="button" className="epm-btn-ghost" onClick={onClose}>Cancelar</button>
-                <button type="submit" className="epm-btn-primary" disabled={saving}>
-                  {saving
-                    ? <><Loader2 size={14} className="epm-spin" /> Guardando...</>
-                    : <><Save size={14} /> Guardar cambios</>
-                  }
+                <button type="button" className="epm-btn-ghost" onClick={onClose}>
+                  {canEditProject || (isOwnerAuthor && !isApprovedOrFinished) ? 'Cancelar' : 'Cerrar'}
                 </button>
+                {(canEditProject || (isOwnerAuthor && !isApprovedOrFinished)) && (
+                  <button type="submit" className="epm-btn-primary" disabled={saving}>
+                    {saving
+                      ? <><Loader2 size={14} className="epm-spin" /> Guardando...</>
+                      : <><Save size={14} /> {canEditProject ? 'Guardar cambios' : 'Guardar equipo'}</>
+                    }
+                  </button>
+                )}
               </div>
             </form>
           </div>

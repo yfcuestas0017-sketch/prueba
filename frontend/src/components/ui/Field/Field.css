@@ -1,0 +1,131 @@
+/* ==========================================================================
+   CAMPOS DE FORMULARIO
+
+   Antes había siete familias de campo de texto repartidas por la aplicación,
+   con alturas entre 33px y 41px según la pantalla. Aquí hay una sola, y su
+   altura sale de --control-h-md, la misma que usan los botones.
+   ========================================================================== */
+
+.ui-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+
+.ui-field-label {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.ui-field-required {
+  color: var(--accent-danger);
+  margin-left: 2px;
+}
+
+.ui-field-control {
+  width: 100%;
+  height: var(--control-h-md);
+  padding: 0 var(--sp-3);
+  font-family: var(--font-body);
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+/* Las áreas de texto crecen; no tiene sentido fijarles la altura de control. */
+textarea.ui-field-control {
+  height: auto;
+  min-height: calc(var(--control-h-md) * 2);
+  padding: var(--sp-2) var(--sp-3);
+  resize: vertical;
+  line-height: 1.5;
+}
+
+/* El selector reserva sitio a la derecha para la flecha nativa. */
+select.ui-field-control {
+  padding-right: var(--sp-8);
+  cursor: pointer;
+}
+
+.ui-field-control::placeholder {
+  color: var(--text-muted);
+}
+
+.ui-field-control:hover:not(:disabled) {
+  border-color: var(--text-muted);
+}
+
+/* :focus-visible y no :focus, para que el anillo aparezca al navegar con
+   teclado y no al hacer clic con el ratón. Se añade :focus para los navegadores
+   que todavía no lo admiten. */
+.ui-field-control:focus,
+.ui-field-control:focus-visible {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 25%, transparent);
+}
+
+.ui-field-control:disabled {
+  background: var(--bg-primary);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.ui-field-control[aria-invalid='true'] {
+  border-color: var(--accent-danger);
+}
+
+.ui-field-control[aria-invalid='true']:focus,
+.ui-field-control[aria-invalid='true']:focus-visible {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-danger) 25%, transparent);
+}
+
+.ui-field-hint {
+  font-size: var(--fs-2xs);
+  color: var(--text-muted);
+}
+
+.ui-field-error {
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  color: var(--accent-danger);
+}
+
+/* Envoltorio para campos con icono o botón dentro (búsqueda, ver contraseña) */
+.ui-field-adorned {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.ui-field-adorned .ui-field-control {
+  padding-right: var(--sp-10);
+}
+
+.ui-field-adornment {
+  position: absolute;
+  right: var(--sp-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-1);
+  color: var(--text-muted);
+  background: none;
+  border: 0;
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+}
+
+.ui-field-adornment:hover {
+  color: var(--text-primary);
+}
+
+.ui-field-adornment:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 1px;
+}

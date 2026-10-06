@@ -1,3 +1,10 @@
+/* NOTA: este archivo contenía además los estilos de un buscador de cabecera
+   (.header-search, .header-search-icon, .header-search-input) que ningún
+   componente llega a renderizar: Header.jsx no tiene ese campo. Eran CSS
+   muerto, incluida la regla que lo "ocultaba" por debajo de 480px. Se
+   eliminaron. Si algún día se implementa el buscador, conviene hacerlo con el
+   patrón de icono que se expande, no ocultándolo en móvil. */
+
         .header {
           display: flex;
           align-items: center;
@@ -44,43 +51,6 @@
           display: flex;
           align-items: center;
           gap: 10px;
-        }
-
-        .header-search {
-          position: relative;
-          display: flex;
-          align-items: center;
-          flex: 1;
-        }
-
-        .header-search-icon {
-          position: absolute;
-          left: 12px;
-          color: var(--text-muted);
-          pointer-events: none;
-        }
-
-        .header-search-input {
-          border: 1px solid var(--border-color);
-          background: var(--bg-secondary);
-          border-radius: var(--border-radius-md);
-          padding: 8px 14px 8px 36px;
-          font-size: 0.85rem;
-          font-family: var(--font-body);
-          color: var(--text-primary);
-          width: 220px;
-          transition: all var(--transition-fast);
-          outline: none;
-        }
-
-        .header-search-input:focus {
-          border-color: var(--accent-primary);
-          box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 15%, transparent);
-          width: 260px;
-        }
-
-        .header-search-input::placeholder {
-          color: var(--text-muted);
         }
 
         .header-btn {
@@ -233,84 +203,101 @@
           color: #000;
         }
 
-        @media (max-width: 1024px) {
-          .header { padding: 18px 24px; gap: 14px; }
-        }
-
-        @media (max-width: 768px) {
-          .header { flex-direction: row; align-items: center; justify-content: space-between; padding: 16px 20px; gap: 12px; }
-          .header-top { flex: 1; min-width: 0; }
-          .header-actions { gap: 8px; flex-direction: row-reverse; }
-          .header-btn--menu { display: flex; }
-          .header-search { max-width: 280px; }
-          .header-title { font-size: 1.2rem; }
-          .header-subtitle { font-size: 0.75rem; }
-        }
-
-        @media (max-width: 640px) {
-          .header { padding: 14px 16px; }
-          .header-search { max-width: 200px; }
-          .header-search-input, .header-search-input:focus { width: 200px; font-size: 0.8rem; padding: 6px 10px 6px 32px; }
-          .header-search-icon { left: 10px; }
-          .header-btn { width: 36px; height: 36px; }
-          .notif-panel { width: 280px; }
-          .header-title { font-size: 1.1rem; }
-        }
-
-        @media (max-width: 480px) {
-          .header { padding: 12px 12px; gap: 8px; }
-          .header-search { display: none; }
-          .header-actions { gap: 6px; }
-          .header-btn { width: 34px; height: 34px; border-radius: 6px; }
-          .notif-panel { width: 240px; right: -20px; }
-          .header-title { font-size: 1rem; }
-          .header-subtitle { font-size: 0.7rem; }
-        }
-
 .header-program-filter {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  padding: 4px 10px;
+  border: 1.5px solid var(--border-color);
+  padding: 5px 12px;
   border-radius: var(--border-radius-md);
   box-shadow: var(--shadow-sm);
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   margin-right: 4px;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.header-program-filter:hover {
+  border-color: color-mix(in srgb, var(--accent-primary) 50%, var(--border-color));
 }
 
 .header-program-label {
   font-weight: 600;
   color: var(--text-secondary);
   white-space: nowrap;
+  font-size: 0.82rem;
 }
 
 .header-program-select {
-  border: 1px solid var(--border-color);
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
   background: var(--bg-secondary);
   color: var(--text-primary);
-  padding: 4px 8px;
-  border-radius: 6px;
-  font-size: 0.8rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 5px 30px 5px 10px;
+  font-size: 0.84rem;
   font-weight: 600;
+  font-family: var(--font-body);
   outline: none;
   cursor: pointer;
-  max-width: 210px;
+  max-width: 220px;
+  transition: all var(--transition-fast);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 14px;
 }
 
 .header-program-select:focus {
   border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 18%, transparent);
+}
+
+.header-program-select option {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: 0.88rem;
+  padding: 8px 12px;
+}
+
+@media (max-width: 1024px) {
+  .header { padding: 18px 24px; gap: 14px; }
 }
 
 @media (max-width: 768px) {
-  .header-program-label {
-    display: none;
-  }
-  .header-program-select {
-    max-width: 140px;
-    font-size: 0.75rem;
-  }
+  .header { flex-direction: row; align-items: center; justify-content: space-between; padding: 16px 20px; gap: 12px; }
+  .header-top { flex: 1; min-width: 0; }
+  .header-actions { gap: 8px; flex-direction: row; }
+  .header-btn--menu { display: flex; }
+  .header-title { font-size: 1.2rem; }
+  .header-subtitle { font-size: 0.75rem; }
+  .header-program-label { display: none; }
+  .header-program-select { max-width: 140px; font-size: 0.75rem; }
 }
+
+@media (max-width: 640px) {
+  .header { padding: 12px 14px; gap: 10px; }
+  .header-btn { width: 36px; height: 36px; }
+  .notif-panel { width: 290px; right: -10px; }
+  .header-title { font-size: 1.1rem; }
+  .header-subtitle { display: none; }
+  .header-program-filter { padding: 3px 6px; }
+  .header-program-select { max-width: 110px; font-size: 0.72rem; padding-right: 22px; }
+}
+
+@media (max-width: 480px) {
+  .header { padding: 10px 10px; gap: 6px; flex-wrap: wrap; }
+  .header-top { flex: 1 1 100%; justify-content: space-between; }
+  .header-actions { flex: 1 1 100%; justify-content: flex-end; gap: 6px; border-top: 1px solid var(--border-color); padding-top: 6px; }
+  .header-btn { width: 34px; height: 34px; border-radius: 6px; }
+  .notif-panel { position: fixed; top: 70px; left: 12px; right: 12px; width: auto; max-width: none; box-shadow: var(--shadow-lg); z-index: 100; }
+  .header-title { font-size: 1.05rem; }
+  .header-program-filter { flex: 1; min-width: 0; justify-content: flex-start; }
+  .header-program-select { width: 100%; max-width: none; }
+}
+
+
 
       

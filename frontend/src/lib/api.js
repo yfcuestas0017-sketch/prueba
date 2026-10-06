@@ -1,17 +1,38 @@
-// En desarrollo local (npm run dev) usamos '/api' y el proxy de Vite.
-// En producción (Vercel) se debe definir VITE_API_URL con la URL pública
-// del backend en Render, por ejemplo: https://tu-backend.onrender.com/api
+import { getToken, notifySessionExpired } from './session.js';
+
+/**
+ * Base de la API.
+ *
+ * En desarrollo el proxy de Vite reenvía `/api` al backend. En un despliegue
+ * donde el frontend y el backend no compartan origen, se define VITE_API_URL
+ * en tiempo de compilación. Antes estaba fijo a '/api', por lo que el build de
+ * producción solo funcionaba si ambos se servían desde el mismo dominio.
+ */
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
+/**
+ * Cliente HTTP único de la aplicación.
+ *
+ * Adjunta el token de sesión a toda petición. Si el servidor responde 401, la
+ * sesión ya no vale: se limpia y se avisa a la aplicación entera, en vez de
+ * dejar que cada pantalla muestre su propio error de "no autorizado".
+ */
 async function request(endpoint, options = {}) {
   const url = `${API_BASE}${endpoint}`;
+  const token = getToken();
   const headers = {
     'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...options.headers,
   };
 
   const response = await fetch(url, { ...options, headers });
   const data = await response.json().catch(() => ({}));
+
+  if (response.status === 401 && token) {
+    notifySessionExpired();
+    throw new Error(data.error || 'Tu sesión ha expirado. Vuelve a iniciar sesión.');
+  }
 
   if (!response.ok) {
     throw new Error(data.error || 'Error en la petición al servidor.');

@@ -1,7 +1,10 @@
         /* ── PAGE LAYOUT ─────────────────────────────────────── */
         .login-page {
           display: flex;
-          height: 100dvh;
+          /* min-height y no height: al abrirse el teclado virtual en móvil, la
+             unidad dvh encoge y con una altura fija el formulario quedaba
+             recortado sin posibilidad de desplazarlo. */
+          min-height: 100dvh;
           overflow: hidden;
         }
 

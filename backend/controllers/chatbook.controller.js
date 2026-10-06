@@ -355,6 +355,15 @@ export const queryChatbook = async (req, res) => {
       }
     }
 
+    if (projects.length === 0) {
+      // Red de seguridad: si no se encontraron proyectos en la BD,
+      // consultar si la pregunta corresponde a una temática del reglamento institucional.
+      const regFallback = await handleRegulationChatbookQuery({ norm, rawText });
+      if (regFallback && regFallback.normativeResults && regFallback.normativeResults.length > 0) {
+        return res.json(regFallback);
+      }
+    }
+
     return res.json({
       message: projects.length > 0
         ? `Encontré ${projects.length} proyecto(s) relacionados con tu consulta en ${programName}:`

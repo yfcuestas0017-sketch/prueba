@@ -138,6 +138,15 @@ const unseenProjects = assignedProjects.filter(
               {unseenProjects.length > 0 && (
                 <span className="notif-badge">{unseenProjects.length}</span>
               )}
+              {/* El número del distintivo es puramente visual. Esta región, que
+                  no se ve, es la que hace que un lector de pantalla anuncie el
+                  cambio cuando llega una asignación nueva; sin ella el aviso
+                  simplemente no existe para quien no mira la pantalla. */}
+              <span className="sr-only" aria-live="polite">
+                {unseenProjects.length > 0
+                  ? `${unseenProjects.length} proyecto${unseenProjects.length === 1 ? '' : 's'} asignado${unseenProjects.length === 1 ? '' : 's'} sin revisar`
+                  : 'Sin notificaciones nuevas'}
+              </span>
             </button>
 
             {notifOpen && (

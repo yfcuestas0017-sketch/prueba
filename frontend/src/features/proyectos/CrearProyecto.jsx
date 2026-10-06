@@ -39,13 +39,14 @@ export default function CreateProjectModal({ statuses, modalities, lines, sublin
   const [form, setForm] = useState({
     title: '',
     code: '',
+    generalObjective: '',
+    specificObjectives: '',
     modalityId: '',
     lineId: '',
     sublineId: '',
     degreeOptionId: '',
     letterLink: '',
     period: '',
-    objectives: '',
     endDate: '',
   });
   const [saving, setSaving] = useState(false);
@@ -163,6 +164,8 @@ export default function CreateProjectModal({ statuses, modalities, lines, sublin
     e.preventDefault();
     if (!form.title.trim()) { setFormError('El título es obligatorio.'); return; }
     if (form.title.trim().length > 255) { setFormError('El título es demasiado largo (máximo 255 caracteres).'); return; }
+    if (!form.generalObjective.trim()) { setFormError('El objetivo general es obligatorio.'); return; }
+    if (!form.specificObjectives.trim()) { setFormError('Los objetivos específicos son obligatorios.'); return; }
     if (!form.modalityId) { setFormError('Selecciona una modalidad.'); return; }
 
     setSaving(true);
@@ -172,6 +175,8 @@ export default function CreateProjectModal({ statuses, modalities, lines, sublin
       const payload = {
         title: form.title.trim(),
         code: form.code.trim() || null,
+        generalObjective: form.generalObjective.trim(),
+        specificObjectives: form.specificObjectives.trim(),
         statusId: statuses?.[0]?.status_id || 1,
         modalityId: Number(form.modalityId) || null,
         lineId: form.lineId ? Number(form.lineId) : null,
@@ -203,8 +208,8 @@ export default function CreateProjectModal({ statuses, modalities, lines, sublin
           <div className="epm-header">
             <div>
               <span className="epm-eyebrow">Nuevo proyecto</span>
-              <h2 className="epm-title">Registrar proyecto de grado</h2>
-              <span className="epm-code">Completa los campos para crear el proyecto</span>
+              <h2 className="epm-title">Registrar propuesta de investigación</h2>
+              <span className="epm-code">Completa los campos para inscribir la idea de investigación</span>
             </div>
             <button className="epm-close-btn" type="button" onClick={onClose}><X size={16} /></button>
           </div>
@@ -220,22 +225,49 @@ export default function CreateProjectModal({ statuses, modalities, lines, sublin
               )}
 
               <form onSubmit={handleSave}>
-                <div className="epm-section-title">Información general</div>
+                <div className="epm-section-title">Información general y objetivos</div>
 
                 <div className="epm-grid2">
                   <div className="epm-field epm-span2">
-                    <label>Título *</label>
-                    <input
+                    <label htmlFor="crear-proyecto-campo-1">Título del proyecto *</label>
+                    <input id="crear-proyecto-campo-1"
                       value={form.title}
                       onChange={e => setForm(p => ({ ...p, title: e.target.value }))}
                       placeholder="Escribe el título del proyecto"
                       required
                     />
                   </div>
+
+                  <div className="epm-field epm-span2">
+                    <label htmlFor="crear-proyecto-general-obj">Objetivo general *</label>
+                    <textarea
+                      id="crear-proyecto-general-obj"
+                      rows={3}
+                      value={form.generalObjective}
+                      onChange={e => setForm(p => ({ ...p, generalObjective: e.target.value }))}
+                      placeholder="Define el propósito principal de la investigación (inicia con un verbo en infinitivo)..."
+                      required
+                      style={{ width: '100%', resize: 'vertical', borderRadius: 8, padding: '8px 12px', border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '0.86rem' }}
+                    />
+                  </div>
+
+                  <div className="epm-field epm-span2">
+                    <label htmlFor="crear-proyecto-specific-objs">Objetivos específicos *</label>
+                    <textarea
+                      id="crear-proyecto-specific-objs"
+                      rows={4}
+                      value={form.specificObjectives}
+                      onChange={e => setForm(p => ({ ...p, specificObjectives: e.target.value }))}
+                      placeholder="1. Diagnosticar el estado actual...&#10;2. Diseñar el modelo...&#10;3. Validar e implementar..."
+                      required
+                      style={{ width: '100%', resize: 'vertical', borderRadius: 8, padding: '8px 12px', border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '0.86rem' }}
+                    />
+                  </div>
+
                   <div className="epm-field">
-                    <label>Línea de investigación</label>
+                    <label htmlFor="crear-proyecto-campo-2">Línea de investigación</label>
                     <div className="epm-select-wrap">
-                      <select value={form.lineId} onChange={handleLineChange}>
+                      <select id="crear-proyecto-campo-2" value={form.lineId} onChange={handleLineChange}>
                         <option value="">— Selecciona —</option>
                         {filteredLines.map(l => <option key={l.research_line_id} value={l.research_line_id}>{l.name}</option>)}
                       </select>
@@ -243,8 +275,8 @@ export default function CreateProjectModal({ statuses, modalities, lines, sublin
                     </div>
                   </div>
                   <div className="epm-field">
-                    <label>Código (auto-generado)</label>
-                    <input
+                    <label htmlFor="crear-proyecto-campo-3">Código (auto-generado)</label>
+                    <input id="crear-proyecto-campo-3"
                       value={isGeneratingCode ? 'Generando...' : form.code}
                       onChange={e => setForm(p => ({ ...p, code: e.target.value }))}
                       placeholder="Se genera al elegir la línea"
@@ -252,9 +284,9 @@ export default function CreateProjectModal({ statuses, modalities, lines, sublin
                     />
                   </div>
                   <div className="epm-field">
-                    <label>Modalidad *</label>
+                    <label htmlFor="crear-proyecto-campo-4">Modalidad *</label>
                     <div className="epm-select-wrap">
-                      <select value={form.modalityId} onChange={e => setForm(p => ({ ...p, modalityId: e.target.value }))} required>
+                      <select id="crear-proyecto-campo-4" value={form.modalityId} onChange={e => setForm(p => ({ ...p, modalityId: e.target.value }))} required>
                         <option value="">— Selecciona —</option>
                         {modalities.map(m => <option key={m.modality_id} value={m.modality_id}>{m.name}</option>)}
                       </select>
@@ -262,9 +294,9 @@ export default function CreateProjectModal({ statuses, modalities, lines, sublin
                     </div>
                   </div>
                   <div className="epm-field">
-                    <label>Sublínea</label>
+                    <label htmlFor="crear-proyecto-campo-5">Sublínea</label>
                     <div className="epm-select-wrap">
-                      <select value={form.sublineId} onChange={e => setForm(p => ({ ...p, sublineId: e.target.value }))} disabled={!form.lineId}>
+                      <select id="crear-proyecto-campo-5" value={form.sublineId} onChange={e => setForm(p => ({ ...p, sublineId: e.target.value }))} disabled={!form.lineId}>
                         <option value="">— Selecciona —</option>
                         {filteredSublines.map(s => <option key={s.research_subline_id} value={s.research_subline_id}>{s.name}</option>)}
                       </select>
@@ -273,9 +305,9 @@ export default function CreateProjectModal({ statuses, modalities, lines, sublin
                   </div>
                   {isAdmin && (
                     <div className="epm-field">
-                      <label>Opción de grado</label>
+                      <label htmlFor="crear-proyecto-campo-6">Opción de grado</label>
                       <div className="epm-select-wrap">
-                        <select value={form.degreeOptionId} onChange={e => setForm(p => ({ ...p, degreeOptionId: e.target.value }))}>
+                        <select id="crear-proyecto-campo-6" value={form.degreeOptionId} onChange={e => setForm(p => ({ ...p, degreeOptionId: e.target.value }))}>
                           <option value="">— Selecciona —</option>
                           {(degreeOptions || []).map(opt => (
                             <option key={opt.degree_option_id} value={opt.degree_option_id}>{opt.name}</option>
@@ -286,8 +318,8 @@ export default function CreateProjectModal({ statuses, modalities, lines, sublin
                     </div>
                   )}
                   <div className="epm-field epm-span2">
-                    <label>Carta / link</label>
-                    <input
+                    <label htmlFor="crear-proyecto-campo-7">Carta / link</label>
+                    <input id="crear-proyecto-campo-7"
                       type="url"
                       value={form.letterLink}
                       onChange={e => setForm(p => ({ ...p, letterLink: e.target.value }))}

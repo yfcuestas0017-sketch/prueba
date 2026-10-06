@@ -45,7 +45,7 @@ export default function ProtectedRoute({ children, requiredRole, excludedRole })
   // resuelto no coincidió exactamente.
   const isAdminGeneral = userIsGeneralAdmin(user);
 
-  if (isAdminGeneral || canBypassRoleCheck) {
+  if (isAdminGeneral) {
     return children;
   }
 

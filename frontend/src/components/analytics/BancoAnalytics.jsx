@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
-import { ChevronDown, Filter, TrendingUp, Search, AlertCircle, FolderOpen, X } from 'lucide-react';
+import { ChevronDown, Filter, Search, AlertCircle, FolderOpen, X } from 'lucide-react';
 import { useAnalytics } from '../../hooks/useAnalytics';
 import { useAuth } from '../../context/AuthContext';
-import { StatusPieChart, LineBarChart, SublineBarChart, TimelineChart, HeatmapChart, RankingAdvisors } from '../analytics';
+import { StatusPieChart, LineBarChart, TimelineChart, HeatmapChart, RankingAdvisors } from '../analytics';
 import './BancoAnalytics.css';
 
 export default function BancoAnalytics() {
@@ -176,10 +176,10 @@ export default function BancoAnalytics() {
 
         <div className="filters-grid">
           <div className="field">
-            <label className="field-label">Buscar</label>
+            <label className="field-label" htmlFor="banco-analytics-campo-1">Buscar</label>
             <div className="search-wrap">
               <Search size={14} className="search-icon" />
-              <input
+              <input id="banco-analytics-campo-1"
                 className="field-input search-input"
                 type="text"
                 placeholder="Titulo del proyecto"
@@ -189,9 +189,9 @@ export default function BancoAnalytics() {
             </div>
           </div>
           <div className="field">
-            <label className="field-label">Estado</label>
+            <label className="field-label" htmlFor="banco-analytics-campo-2">Estado</label>
             <div className="select-wrap">
-              <select className="field-input field-select" value={filters.status} onChange={handleFilter('status')}>
+              <select id="banco-analytics-campo-2" className="field-input field-select" value={filters.status} onChange={handleFilter('status')}>
                 <option value="">Todos</option>
                 {analytics.statuses?.map(s => <option key={s.status_id} value={s.name}>{s.name}</option>)}
               </select>
@@ -200,9 +200,9 @@ export default function BancoAnalytics() {
           </div>
 
           <div className="field">
-            <label className="field-label">Línea</label>
+            <label className="field-label" htmlFor="banco-analytics-campo-3">Línea</label>
             <div className="select-wrap">
-              <select className="field-input field-select" value={filters.line} onChange={handleFilter('line')}>
+              <select id="banco-analytics-campo-3" className="field-input field-select" value={filters.line} onChange={handleFilter('line')}>
                 <option value="">Todas</option>
                 {analytics.lines?.map(l => <option key={l.research_line_id} value={l.name}>{l.name}</option>)}
               </select>
@@ -211,9 +211,9 @@ export default function BancoAnalytics() {
           </div>
 
           <div className="field">
-            <label className="field-label">Sublínea</label>
+            <label className="field-label" htmlFor="banco-analytics-campo-4">Sublínea</label>
             <div className="select-wrap">
-              <select className="field-input field-select" value={filters.subline} onChange={handleFilter('subline')}>
+              <select id="banco-analytics-campo-4" className="field-input field-select" value={filters.subline} onChange={handleFilter('subline')}>
                 <option value="">Todas</option>
                 {availableSublines.map(sl => <option key={sl.research_subline_id} value={sl.name}>{sl.name}</option>)}
               </select>
@@ -222,9 +222,9 @@ export default function BancoAnalytics() {
           </div>
 
           <div className="field">
-            <label className="field-label">Año</label>
+            <label className="field-label" htmlFor="banco-analytics-campo-5">Año</label>
             <div className="select-wrap">
-              <select className="field-input field-select" value={filters.year} onChange={handleFilter('year')}>
+              <select id="banco-analytics-campo-5" className="field-input field-select" value={filters.year} onChange={handleFilter('year')}>
                 <option value="">Todos</option>
                 {uniqueYears.map(y => <option key={y} value={y}>{y}</option>)}
               </select>

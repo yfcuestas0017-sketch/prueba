@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  BarChart3, BookOpen, ChevronDown, Clock, Download, ExternalLink, Eye, FilePlus2, Filter, History, Pencil,
-  Settings, Trash2, Upload, User, Users, X,
+  ChevronDown,
+  Clock,
+  Download,
+  ExternalLink,
+  FilePlus2,
+  Filter,
+  History,
+  Pencil,
+  User,
+  X,
 } from 'lucide-react';
 import DashboardLayout from '../../components/layout/DashboardLayout';
 import { useAuth } from '../../context/AuthContext';
@@ -257,6 +265,8 @@ export function ProyectosPage() {
             ? `Carta: ${row.letterLink}`
             : 'Sin descripción registrada.',
           letterLink: row.letterLink || '',
+          generalObjective: row.generalObjective || row.general_objective || null,
+          specificObjectives: row.specificObjectives || row.specific_objectives || null,
           isOwned: (row.user_projects || []).some(up => String(up.user_id) === String(user?.id)),
           coauthors: row.authors || [],
           authorsList: row.authors || [],
@@ -700,44 +710,72 @@ export function ProyectosPage() {
               )}
               {studentPhase === 'III' && studentProcess?.project && (() => {
                 const projectStatus = (studentProcess.project.status || '').toLowerCase();
-                const isFinished = ['finalizado', 'terminado', 'completado'].some(word => projectStatus.includes(word));
-                const bibliotecaDoc = studentRecords.documents.find(d => d.document_type === 'enlace_biblioteca');
-                if (isFinished) {
+                const isApprovedOrFinished = ['finalizado', 'terminado', 'completado', 'aprobado', 'sustentado'].some(word => projectStatus.includes(word));
+                const bibliotecaDoc = studentRecords.documents.find(d => d.document_type === 'enlace_biblioteca') || (studentRecords.documents.length > 0 ? studentRecords.documents[0] : null);
+
+                if (isApprovedOrFinished || Boolean(bibliotecaDoc)) {
                   return (
                     <div className="student-process-finalizado">
-                      <span className="student-process-finalizado-icon">✓</span>
-                      <div>
-                        <strong>Proyecto finalizado</strong>
-                        <p>Tu proyecto ha sido marcado como <em>{studentProcess.project.status}</em>. No se pueden realizar más cambios.</p>
-                        {bibliotecaDoc && (
-                          <a href={bibliotecaDoc.file_url} target="_blank" rel="noreferrer" className="student-process-finalizado-link">Ver proyecto en Biblioteca CESMAG →</a>
-                        )}
+                      <div className="student-process-finalizado-header">
+                        <span className="student-process-finalizado-icon">🎓</span>
+                        <div>
+                          <strong>¡Proyecto Aprobado y Culminado!</strong>
+                          <p>
+                            {isApprovedOrFinished
+                              ? `Tu proyecto de grado ha superado satisfactoriamente todas las etapas investigativas (Investigación I, II e III) y cuenta con estado "${studentProcess.project.status}". El proceso ha culminado exitosamente.`
+                              : 'Has registrado exitosamente el documento final de Investigación III en el repositorio institucional. El proyecto se encuentra registrado y cerrado para nuevas modificaciones.'}
+                          </p>
+                        </div>
                       </div>
+
+                      {bibliotecaDoc && (
+                        <div className="student-process-doc-box">
+                          <div className="student-process-doc-info">
+                            <span className="student-process-doc-title">📄 Documento Institucional (Biblioteca CESMAG)</span>
+                            <small className="student-process-doc-date">
+                              Registrado el: {new Date(bibliotecaDoc.delivered_at).toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric' })}
+                            </small>
+                            {bibliotecaDoc.observations && (
+                              <p className="student-process-doc-obs">{bibliotecaDoc.observations}</p>
+                            )}
+                          </div>
+                          <a
+                            href={bibliotecaDoc.file_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="student-process-doc-btn"
+                          >
+                            Ver proyecto en Biblioteca CESMAG ↗
+                          </a>
+                        </div>
+                      )}
                     </div>
                   );
                 }
+
                 return (
-                <form className="student-process-form student-process-form--biblioteca" onSubmit={submitStudentAction}>
-                  <strong>Enlace del proyecto en Biblioteca Universidad CESMAG</strong>
-                  <p className="student-process-form-hint">Ingresa el enlace permanente de tu proyecto final publicado en el repositorio de la Biblioteca de la Universidad CESMAG.</p>
-                  <input
-                    type="url"
-                    value={studentActionData.fileUrl}
-                    onChange={(event) => setStudentActionData((current) => ({ ...current, fileUrl: event.target.value }))}
-                    placeholder="https://biblioteca.cesmag.edu.co/..."
-                    required
-                  />
-                  {studentActionError && <span className="student-process-error">{studentActionError}</span>}
-                  <div className="student-process-form-actions">
-                    <button type="submit" disabled={studentActionSaving}>{studentActionSaving ? 'Guardando...' : 'Guardar enlace'}</button>
-                  </div>
-                </form>
+                  <form className="student-process-form student-process-form--biblioteca" onSubmit={submitStudentAction}>
+                    <strong>Enlace del proyecto en Biblioteca Universidad CESMAG</strong>
+                    <p className="student-process-form-hint">Ingresa el enlace permanente de tu proyecto final publicado en el repositorio de la Biblioteca de la Universidad CESMAG para culminar tu proceso.</p>
+                    <input
+                      type="url"
+                      value={studentActionData.fileUrl}
+                      onChange={(event) => setStudentActionData((current) => ({ ...current, fileUrl: event.target.value }))}
+                      placeholder="https://biblioteca.cesmag.edu.co/..."
+                      required
+                    />
+                    {studentActionError && <span className="student-process-error">{studentActionError}</span>}
+                    <div className="student-process-form-actions">
+                      <button type="submit" disabled={studentActionSaving}>{studentActionSaving ? 'Guardando...' : 'Guardar enlace'}</button>
+                    </div>
+                  </form>
                 );
               })()}
               {studentRecords.documents.length > 0 && studentPhase === 'III' && (() => {
                 const projectStatus = (studentProcess?.project?.status || '').toLowerCase();
-                const isFinished = ['finalizado', 'terminado', 'completado'].some(word => projectStatus.includes(word));
-                if (isFinished) return null;
+                const isApprovedOrFinished = ['finalizado', 'terminado', 'completado', 'aprobado', 'sustentado'].some(word => projectStatus.includes(word));
+                const bibliotecaDoc = studentRecords.documents.find(d => d.document_type === 'enlace_biblioteca') || studentRecords.documents[0];
+                if (isApprovedOrFinished || Boolean(bibliotecaDoc)) return null;
                 return <div className="student-process-records"><strong>Documentos registrados</strong>{studentRecords.documents.map((item) => <a key={item.document_id} href={item.file_url} target="_blank" rel="noreferrer">{item.document_type} · {new Date(item.delivered_at).toLocaleDateString('es-CO')}</a>)}</div>;
               })()}
             </div>
@@ -764,8 +802,8 @@ export function ProyectosPage() {
 
             <form className="form-grid" onSubmit={handleSaveProject}>
               <div className="field">
-                <label className="field-label">Título del proyecto *</label>
-                <input
+                <label className="field-label" htmlFor="proyectos-page-campo-1">Título del proyecto *</label>
+                <input id="proyectos-page-campo-1"
                   type="text"
                   value={formData.title}
                   onChange={handleFormChange('title')}
@@ -775,8 +813,8 @@ export function ProyectosPage() {
                 />
               </div>
               <div className="field">
-                <label className="field-label">Código (Autogenerado)</label>
-                <input
+                <label className="field-label" htmlFor="proyectos-page-campo-2">Código (Autogenerado)</label>
+                <input id="proyectos-page-campo-2"
                   type="text"
                   value={isGeneratingCode ? 'Generando...' : formData.code}
                   readOnly
@@ -786,9 +824,9 @@ export function ProyectosPage() {
                 />
               </div>
               <div className="field">
-                <label className="field-label">Estado *</label>
+                <label className="field-label" htmlFor="proyectos-page-campo-3">Estado *</label>
                 <div className="select-wrap">
-                  <select
+                  <select id="proyectos-page-campo-3"
                     className="field-input field-select"
                     value={formData.statusId}
                     onChange={handleFormChange('statusId')}
@@ -805,9 +843,9 @@ export function ProyectosPage() {
                 </div>
               </div>
               <div className="field">
-                <label className="field-label">Modalidad *</label>
+                <label className="field-label" htmlFor="proyectos-page-campo-4">Modalidad *</label>
                 <div className="select-wrap">
-                  <select
+                  <select id="proyectos-page-campo-4"
                     className="field-input field-select"
                     value={formData.modalityId}
                     onChange={handleFormChange('modalityId')}
@@ -824,9 +862,9 @@ export function ProyectosPage() {
                 </div>
               </div>
               <div className="field">
-                <label className="field-label">Línea de investigación</label>
+                <label className="field-label" htmlFor="proyectos-page-campo-5">Línea de investigación</label>
                 <div className="select-wrap">
-                  <select
+                  <select id="proyectos-page-campo-5"
                     className="field-input field-select"
                     value={formData.lineId}
                     onChange={handleFormChange('lineId')}
@@ -842,9 +880,9 @@ export function ProyectosPage() {
                 </div>
               </div>
               <div className="field">
-                <label className="field-label">Sublínea</label>
+                <label className="field-label" htmlFor="proyectos-page-campo-6">Sublínea</label>
                 <div className="select-wrap">
-                  <select
+                  <select id="proyectos-page-campo-6"
                     className="field-input field-select"
                     value={formData.sublineId}
                     onChange={handleFormChange('sublineId')}
@@ -864,8 +902,8 @@ export function ProyectosPage() {
                 </div>
               </div>
               <div className="field form-span">
-                <label className="field-label">Enlace de carta de presentación</label>
-                <input
+                <label className="field-label" htmlFor="proyectos-page-campo-7">Enlace de carta de presentación</label>
+                <input id="proyectos-page-campo-7"
                   type="url"
                   value={formData.letterLink}
                   onChange={handleFormChange('letterLink')}
@@ -875,9 +913,9 @@ export function ProyectosPage() {
               </div>
 
               <div className="field form-span">
-                <label className="field-label">Co-autores del proyecto (opcional)</label>
+                <label className="field-label" htmlFor="proyectos-page-campo-8">Co-autores del proyecto (opcional)</label>
                 <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-                  <input
+                  <input id="proyectos-page-campo-8"
                     type="email"
                     value={newCoauthorEmail}
                     onChange={(e) => { setNewCoauthorEmail(e.target.value); setFormError(''); }}
@@ -970,8 +1008,8 @@ export function ProyectosPage() {
           </div>
           <div className="filters-grid">
             <div className="field">
-              <label className="field-label">Buscar</label>
-              <input
+              <label className="field-label" htmlFor="proyectos-page-campo-9">Buscar</label>
+              <input id="proyectos-page-campo-9"
                 type="text"
                 value={filters.search}
                 onChange={handleFilterChange('search')}
@@ -980,9 +1018,9 @@ export function ProyectosPage() {
               />
             </div>
             <div className="field">
-              <label className="field-label">Estado</label>
+              <label className="field-label" htmlFor="proyectos-page-campo-10">Estado</label>
               <div className="select-wrap">
-                <select
+                <select id="proyectos-page-campo-10"
                   className="field-input field-select"
                   value={filters.status}
                   onChange={handleFilterChange('status')}
@@ -998,9 +1036,9 @@ export function ProyectosPage() {
               </div>
             </div>
             <div className="field">
-              <label className="field-label">Modalidad</label>
+              <label className="field-label" htmlFor="proyectos-page-campo-11">Modalidad</label>
               <div className="select-wrap">
-                <select
+                <select id="proyectos-page-campo-11"
                   className="field-input field-select"
                   value={filters.modality}
                   onChange={handleFilterChange('modality')}
@@ -1016,9 +1054,9 @@ export function ProyectosPage() {
               </div>
             </div>
             <div className="field">
-              <label className="field-label">Año</label>
+              <label className="field-label" htmlFor="proyectos-page-campo-12">Año</label>
               <div className="select-wrap">
-                <select
+                <select id="proyectos-page-campo-12"
                   className="field-input field-select"
                   value={filters.year}
                   onChange={handleFilterChange('year')}
@@ -1077,8 +1115,10 @@ export function ProyectosPage() {
                         >
                           Ver
                         </Button>
-                        {!isLimitedUser && (
-                          <Button variant="ghost" size="sm" onClick={() => setEditModal(project)}>Editar</Button>
+                        {(!isLimitedUser || project.isOwned || project.myRole === 'autor') && (
+                          <Button variant="ghost" size="sm" onClick={() => setEditModal(project)}>
+                            {isLimitedUser ? 'Gestionar' : 'Editar'}
+                          </Button>
                         )}
                         <Button
                           variant="ghost"
@@ -1167,6 +1207,31 @@ export function ProyectosPage() {
                   </div>
                 </div>
 
+                {(detailModal.generalObjective || detailModal.specificObjectives) && (
+                  <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {detailModal.generalObjective && (
+                      <div style={{ background: 'var(--bg-secondary)', padding: '12px 14px', borderRadius: 8, border: '1px solid var(--border-color)' }}>
+                        <span style={{ fontSize: '0.74rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--accent-primary)', display: 'block', marginBottom: 4 }}>
+                          Objetivo general
+                        </span>
+                        <p style={{ fontSize: '0.88rem', color: 'var(--text-primary)', margin: 0, lineHeight: 1.5 }}>
+                          {detailModal.generalObjective}
+                        </p>
+                      </div>
+                    )}
+                    {detailModal.specificObjectives && (
+                      <div style={{ background: 'var(--bg-secondary)', padding: '12px 14px', borderRadius: 8, border: '1px solid var(--border-color)' }}>
+                        <span style={{ fontSize: '0.74rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--accent-primary)', display: 'block', marginBottom: 4 }}>
+                          Objetivos específicos
+                        </span>
+                        <p style={{ fontSize: '0.88rem', color: 'var(--text-primary)', margin: 0, lineHeight: 1.5, whiteSpace: 'pre-line' }}>
+                          {detailModal.specificObjectives}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {detailModal.description?.startsWith('Carta:') && (
                   <div className="modal-link-row">
                     <span className="modal-info-key">Carta de presentación</span>
@@ -1188,8 +1253,10 @@ export function ProyectosPage() {
                     Exportar a PDF
                   </Button>
                 )}
-                {!isLimitedUser && (
-                  <Button variant="ghost" icon={Pencil} onClick={() => { setDetailModal(null); setEditModal(detailModal); }}>Editar</Button>
+                {(!isLimitedUser || detailModal.isOwned || detailModal.myRole === 'autor') && (
+                  <Button variant="ghost" icon={Pencil} onClick={() => { setDetailModal(null); setEditModal(detailModal); }}>
+                    {isLimitedUser ? 'Gestionar integrantes' : 'Editar'}
+                  </Button>
                 )}
                 <Button variant="ghost" icon={History} onClick={() => {
                   const p = detailModal;
@@ -1313,7 +1380,6 @@ export function ProyectosPage() {
         />
         )}
       </div>
-
 
       {showCrearModal && (
         <CrearProyecto

@@ -1,12 +1,10 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
-  BarChart2,
   BookOpen,
   ChevronLeft,
   ChevronRight,
   FileSpreadsheet,
   FolderOpen,
-  GraduationCap,
   LayoutDashboard,
   LogOut,
   Settings,
@@ -33,7 +31,7 @@ const NAV_BOTTOM = [
   // reducida (solo líneas y sublíneas de su programa) a este último.
   { to: '/administracion-general', label: 'Administración General', icon: ShieldCheck, adminOnly: true },
   { to: '/reportes', label: 'Generar reportes', icon: FileSpreadsheet, adminOnly: true },
-  { to: '/usuarios', label: 'Usuarios', icon: Users, adminOnly: true },
+  { to: '/usuarios', label: 'Usuarios', icon: Users, adminGeneralOnly: true },
   { to: '/ajustes', label: 'Ajustes', icon: Settings },
 ];
 
@@ -141,7 +139,7 @@ export default function Sidebar() {
           {isSidebarExpanded && <span className="sidebar-section-label">Sistema</span>}
 
           {NAV_BOTTOM.filter((item) => {
-            if (item.adminGeneralOnly && !isAdminGeneral && user?.authMode !== 'local') return false;
+            if (item.adminGeneralOnly && !isAdminGeneral) return false;
             if (item.adminOnly && !canAccessAdmin) return false;
             return true;
           }).map(
@@ -170,7 +168,7 @@ export default function Sidebar() {
               <div className="sidebar-user-info">
                 <span className="sidebar-user-name">{user?.name}</span>
                 <span className="sidebar-user-role">
-                  {user?.authMode === 'local' ? 'sesion local' : user?.role}
+                  {user?.role}
                 </span>
               </div>
             )}

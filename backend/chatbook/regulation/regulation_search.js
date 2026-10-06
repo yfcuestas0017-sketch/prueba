@@ -27,6 +27,13 @@ export function normalizeText(text) {
     .trim();
 }
 
+export function getStem(word) {
+  if (!word || word.length < 4) return word || '';
+  return word
+    .toLowerCase()
+    .replace(/(aciones|acion|ando|iendo|aron|ieron|aran|ieran|aste|iste|ara|iera|ado|ido|ada|ida|ar|er|ir|os|as|es|s)$/i, '');
+}
+
 export function tokenizeQuery(query) {
   const norm = normalizeText(query);
   if (!norm) return [];
@@ -34,7 +41,8 @@ export function tokenizeQuery(query) {
     'de', 'la', 'el', 'los', 'las', 'un', 'una', 'unos', 'unas', 'y', 'o', 'e',
     'en', 'a', 'para', 'por', 'con', 'sin', 'sobre', 'del', 'al', 'que', 'se',
     'su', 'sus', 'como', 'cual', 'cuales', 'donde', 'cuando', 'quien', 'quienes',
-    'dice', 'habla', 'menciona', 'establece', 'estipula', 'cuenta', 'reglamento', 'acuerdo'
+    'dice', 'habla', 'menciona', 'establece', 'estipula', 'cuenta', 'reglamento', 'acuerdo',
+    'puede', 'pueden', 'puedo', 'debe', 'deben', 'debo', 'ser', 'hay', 'tener', 'hacer'
   ]);
   return norm
     .split(' ')
@@ -104,7 +112,7 @@ export function searchModalities(query) {
     return (
       nameNorm.includes(norm) ||
       norm.includes(nameNorm) ||
-      (tokens.length > 0 && tokens.some(t => nameNorm.includes(t)))
+      (tokens.length > 0 && tokens.some(t => t.length > 4 && nameNorm.split(' ').some(w => w === t || getStem(w) === getStem(t))))
     );
   });
 }
@@ -177,12 +185,14 @@ export function searchRegulation(query, options = {}) {
   }
 
   const asksAllModalities = /\b(que modalidades|cuales son las modalidades|que opciones de grado|cuales son las opciones de grado|modalidades de grado|opciones de grado|modalidades existen|opciones existen)\b/i.test(normQuery);
-  if (modalityOnly || asksAllModalities || /\b(modalidad|modalidades|opcion de grado|opciones de grado|coterminalidad|pasantia|monografia|certificacion|creacion de empresa|consultoria)\b/i.test(normQuery)) {
+  const isExcludedFromModality = /\b(sustentacion|jurado|distincion|sancion|sanciones|plagio|fraude|disciplina|asesor|espacio)\b/i.test(normQuery);
+
+  if (!isExcludedFromModality && (modalityOnly || asksAllModalities || /\b(modalidad|modalidades|opcion de grado|opciones de grado|coterminalidad|pasantia|monografia|certificacion|creacion de empresa|consultoria)\b/i.test(normQuery))) {
     let matchedModalities = searchModalities(rawQuery);
     if (asksAllModalities || matchedModalities.length === 0) {
       matchedModalities = [...REGULATION_MODALITIES];
     }
-    if (matchedModalities.length > 0 && !/\b(sustentacion|jurado|distincion|sancion|asesor|espacio)\b/i.test(normQuery)) {
+    if (matchedModalities.length > 0) {
       const art6 = getArticleByNumber(6);
       return {
         success: true,
@@ -258,6 +268,8 @@ export function searchRegulation(query, options = {}) {
     }
   }
 
+  const stems = tokens.map(getStem).filter(s => s.length >= 3);
+
   const scoredArticles = [];
 
   for (const article of REGULATION_ARTICLES) {
@@ -285,17 +297,68 @@ export function searchRegulation(query, options = {}) {
       }
     }
 
+    const genericWords = new Set(['requisito', 'requisitos', 'requisit', 'proceso', 'fase', 'fases', 'etapa', 'etapas', 'como', 'condicion', 'condiciones', 'procedimiento']);
+    const nonGenericTokens = tokens.filter(t => !genericWords.has(t) && !genericWords.has(getStem(t)));
+
     let matchedTitleTokens = 0;
     for (const token of tokens) {
+      const isGeneric = genericWords.has(token) || genericWords.has(getStem(token));
       if (titleNorm.includes(token)) {
         matchedTitleTokens++;
-        score += 30;
+        score += isGeneric ? 15 : 45;
       }
-      if (keywordsNorm.some(kw => kw.includes(token))) score += 15;
-      if (contentNorm.includes(token)) score += 4;
+      if (keywordsNorm.some(kw => kw.includes(token))) score += isGeneric ? 10 : 25;
+      if (contentNorm.includes(token)) score += isGeneric ? 2 : 5;
     }
 
-    if (tokens.length >= 2 && matchedTitleTokens >= 2) {
+    // Coincidencias por raíz de palabra (stemming)
+    for (const stem of stems) {
+      const isGeneric = genericWords.has(stem);
+      if (titleNorm.includes(stem)) {
+        matchedTitleTokens++;
+        score += isGeneric ? 15 : 45;
+      }
+      if (keywordsNorm.some(kw => kw.includes(stem))) {
+        score += isGeneric ? 10 : 25;
+      }
+    }
+
+    // Prioridad decisiva al tema central específico (sustentación, anteproyecto, idea, asesor, jurado, distinciones, plagio)
+    const specificTopics = ['sustent', 'anteproyect', 'asesor', 'jurad', 'plagi', 'sancion', 'disciplin', 'distinci', 'meritori', 'lauread', 'calificaci', 'reprob'];
+    const querySpecificTopics = specificTopics.filter(t => stems.some(s => s.includes(t) || t.includes(s)));
+    if (querySpecificTopics.length > 0) {
+      const matchesTopic = querySpecificTopics.some(t => titleNorm.includes(t) || keywordsNorm.some(kw => kw.includes(t)));
+      if (matchesTopic) {
+        score += 150;
+      } else {
+        // Penalizar artículos que no traten sobre el tema específico solicitado
+        score = Math.max(0, score - 60);
+      }
+    }
+
+    // Penalizar títulos con acciones accesorias (cambio, renuncia, contratacion) si la consulta no las pide
+    const actionWords = ['cambio', 'renuncia', 'separacion', 'contratacion'];
+    for (const act of actionWords) {
+      if (titleNorm.includes(act) && !normQuery.includes(act)) {
+        score -= 40;
+      }
+    }
+
+    // Boost a definiciones y perfiles cuando la pregunta es "quién es", "quién puede ser", "qué es", "definición"
+    const asksWhoOrWhat = /\b(quien|quienes|que es|en que consiste|definicion|perfil)\b/i.test(normQuery);
+    if (asksWhoOrWhat && (titleNorm.includes('definicion') || titleNorm.includes('perfil'))) {
+      score += 60;
+    }
+
+    // Preferencia a pregrado cuando no se especifica posgrado/maestría/doctorado
+    const asksPosgrado = /\b(posgrado|maestria|doctorado|tesis doctoral)\b/i.test(normQuery);
+    if (!asksPosgrado && titleNorm.includes('pregrado')) {
+      score += 25;
+    } else if (asksPosgrado && (titleNorm.includes('maestria') || titleNorm.includes('doctorado'))) {
+      score += 50;
+    }
+
+    if (nonGenericTokens.length > 0 && nonGenericTokens.every(t => titleNorm.includes(t) || titleNorm.includes(getStem(t)))) {
       score += 80;
     }
 

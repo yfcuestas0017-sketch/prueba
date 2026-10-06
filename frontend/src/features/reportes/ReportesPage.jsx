@@ -563,16 +563,20 @@ export default function ReportesPage() {
                             className={String(selectedProjectId) === String(p.id) ? 'row-selected' : ''}
                             onClick={() => setSelectedProjectId(String(p.id))}
                           >
-                            <td className="cell-num">{idx + 1}</td>
-                            <td className="cell-code"><span>{p.code}</span></td>
-                            <td className="cell-title" title={p.title}>{p.title}</td>
-                            <td>{p.modality}</td>
-                            <td>{p.line}</td>
-                            <td><span className="status-pill">{p.status}</span></td>
-                            <td className="cell-sem">{semStr}</td>
-                            <td className="cell-authors">{authorsStr}</td>
-                            <td className="cell-advisor">{advisorStr}</td>
-                            <td className="cell-date">{dateStr}</td>
+                            {/* data-label alimenta el pseudoelemento ::before que en
+                                móvil convierte cada fila en una ficha con sus
+                                etiquetas. Es el mismo patrón que ya usa la tabla
+                                de Proyectos. */}
+                            <td className="cell-num" data-label="#">{idx + 1}</td>
+                            <td className="cell-code" data-label="Código"><span>{p.code}</span></td>
+                            <td className="cell-title" data-label="Título" title={p.title}>{p.title}</td>
+                            <td data-label="Modalidad">{p.modality}</td>
+                            <td data-label="Línea">{p.line}</td>
+                            <td data-label="Estado"><span className="status-pill">{p.status}</span></td>
+                            <td className="cell-sem" data-label="Semestre">{semStr}</td>
+                            <td className="cell-authors" data-label="Autores">{authorsStr}</td>
+                            <td className="cell-advisor" data-label="Asesor">{advisorStr}</td>
+                            <td className="cell-date" data-label="Fecha">{dateStr}</td>
                           </tr>
                         );
                       })}

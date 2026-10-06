@@ -34,7 +34,7 @@ router.get('/health', async (req, res) => {
   }
 });
 
-router.use(authRoutes); // auth.routes.js ya declara '/auth/login' y '/auth/register'
+router.use('/auth', authRoutes); // auth.routes.js declara '/login' y '/register' → quedan en /api/auth/login y /api/auth/register
 router.use(catalogsRoutes);
 
 /* ─── A partir de aquí, todo exige sesión ─────────────────────────────────
@@ -52,6 +52,13 @@ router.use(projectBankRoutes);
 router.use(reportsRoutes);
 router.use(analyticsRoutes);
 router.use(chatbookRoutes);
-router.use('/admin/general', requireAdminGeneral, adminGeneralRoutes);
+// Las rutas de catálogo de BD (/admin/general/db/*) manejan su propia autorización interna
+// (permitiendo al Administrador de Programa gestionar líneas y sublíneas de su programa).
+// Todo lo demás bajo /admin/general (/users, /roles, /permissions, /programs, /audit-history)
+// exige estrictamente Administrador General.
+router.use('/admin/general', (req, res, next) => {
+  if (req.path.startsWith('/db')) return next('router');
+  return requireAdminGeneral(req, res, next);
+}, adminGeneralRoutes);
 
 export default router;

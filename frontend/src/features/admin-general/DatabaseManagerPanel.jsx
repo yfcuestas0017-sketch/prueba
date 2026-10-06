@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Database, Plus, Edit3, Trash2, X, RefreshCw } from 'lucide-react';
+import { Database, Plus, Edit3, Trash2, RefreshCw } from 'lucide-react';
 import api from '../../lib/api';
 import { useProgramFilter } from '../../context/ProgramFilterContext';
+import { Modal, Button, Alert, FormField } from '../../components/ui';
 
 export default function DatabaseManagerPanel({ adminUserId, lockedProgramId = null }) {
   const { selectedProgram: globalSelectedProgram, programs: filterPrograms } = useProgramFilter();
@@ -21,6 +22,10 @@ export default function DatabaseManagerPanel({ adminUserId, lockedProgramId = nu
   const [editingRow, setEditingRow] = useState(null);
   const [formData, setFormData] = useState({});
   const [saving, setSaving] = useState(false);
+  // Borrar una fila pedia confirmacion con el dialogo nativo del navegador:
+  // no sigue el tema, no se puede traducir y en la herramienta de base de
+  // datos es justo donde mas importa que se lea QUE se va a borrar.
+  const [filaPorEliminar, setFilaPorEliminar] = useState(null);
 
   const showFeedback = (msg, isError = false) => {
     if (isError) {
@@ -134,14 +139,22 @@ export default function DatabaseManagerPanel({ adminUserId, lockedProgramId = nu
     }
   };
 
-  const handleDelete = async (row) => {
-    if (!window.confirm('¿Eliminar este registro de forma permanente?')) return;
+  const handleDelete = (row) => {
+    setFilaPorEliminar(row);
+  };
+
+  const confirmarEliminacion = async () => {
+    if (!filaPorEliminar) return;
+    setSaving(true);
     try {
-      await api.adminGeneral.dbDeleteRow(adminUserId, selectedTable, row[currentTableCfg.pk]);
+      await api.adminGeneral.dbDeleteRow(adminUserId, selectedTable, filaPorEliminar[currentTableCfg.pk]);
       showFeedback('Registro eliminado con éxito.');
+      setFilaPorEliminar(null);
       loadRows();
     } catch (err) {
       showFeedback(err.message || 'No se pudo eliminar el registro.', true);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -151,25 +164,56 @@ export default function DatabaseManagerPanel({ adminUserId, lockedProgramId = nu
 
   return (
     <div className="ag-card">
+      <Modal
+        open={Boolean(filaPorEliminar)}
+        onClose={() => setFilaPorEliminar(null)}
+        title="Eliminar registro"
+        size="sm"
+        footer={(
+          <>
+            <Button variant="ghost" onClick={() => setFilaPorEliminar(null)} disabled={saving}>
+              Cancelar
+            </Button>
+            <Button variant="danger" onClick={confirmarEliminacion} loading={saving}>
+              Eliminar definitivamente
+            </Button>
+          </>
+        )}
+      >
+        <p>Esta acción no se puede deshacer.</p>
+        {filaPorEliminar && currentTableCfg && (
+          <p>
+            Se eliminará el registro <strong>{String(filaPorEliminar[currentTableCfg.pk])}</strong>
+            {' '}de la tabla <strong>{currentTableCfg.label || selectedTable}</strong>.
+          </p>
+        )}
+      </Modal>
+
       <div className="ag-toolbar">
-        <h2><Database size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Gestión de Base de Datos</h2>
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <select
-            className="ag-form-input"
-            value={selectedTable || ''}
-            onChange={(e) => setSelectedTable(e.target.value)}
-          >
-            {tables.map((t) => (
-              <option key={t.key} value={t.key}>{t.label}</option>
-            ))}
-          </select>
-          <button className="ag-btn-secondary" onClick={loadRows}><RefreshCw size={14} /> Actualizar</button>
-          <button className="ag-btn-primary" onClick={handleOpenCreate}><Plus size={16} /> Nuevo registro</button>
+        <h2><Database size={18} className="ag-inline-icon" /> Gestión de Base de Datos</h2>
+        <div className="ag-db-actions">
+          {/* El selector de tabla no tenía rótulo de ningún tipo: un lector de
+              pantalla anunciaba solo el valor, sin decir de qué es. */}
+          <FormField label="Tabla" className="ag-db-table-picker">
+            {(field) => (
+              <select
+                {...field}
+                value={selectedTable || ''}
+                onChange={(e) => setSelectedTable(e.target.value)}
+              >
+                {tables.map((t) => (
+                  <option key={t.key} value={t.key}>{t.label}</option>
+                ))}
+              </select>
+            )}
+          </FormField>
+          <Button variant="secondary" icon={RefreshCw} onClick={loadRows}>Actualizar</Button>
+          <Button icon={Plus} onClick={handleOpenCreate}>Nuevo registro</Button>
         </div>
       </div>
 
       {currentTableCfg?.programScoped && (
-        <p style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', color: '#64748b' }}>
+        <p className="ag-db-scope-note">
           {selectedProgram && selectedProgram !== 'all'
             ? `Mostrando registros globales + los del programa seleccionado (${
                 filterPrograms?.find((p) => String(p.program_id) === String(selectedProgram))?.name || 'programa seleccionado'
@@ -179,14 +223,10 @@ export default function DatabaseManagerPanel({ adminUserId, lockedProgramId = nu
       )}
 
       {error && (
-        <div className="ag-audit-item" style={{ borderLeftColor: '#ef4444', background: 'rgba(239,68,68,0.1)', color: '#dc2626' }}>
-          {error}
-        </div>
+        <Alert type="error" onDismiss={() => setError(null)}>{error}</Alert>
       )}
       {successMsg && (
-        <div className="ag-audit-item" style={{ borderLeftColor: '#22c55e', background: 'rgba(34,197,94,0.1)', color: '#16a34a' }}>
-          {successMsg}
-        </div>
+        <Alert type="success" onDismiss={() => setSuccessMsg(null)}>{successMsg}</Alert>
       )}
 
       <div className="ag-table-container">
@@ -216,19 +256,20 @@ export default function DatabaseManagerPanel({ adminUserId, lockedProgramId = nu
                           : (row[`${c.name}_label`] ?? String(row[c.name] ?? ''))}
                     </td>
                   ))}
-                  <td style={{ whiteSpace: 'nowrap' }}>
-                    <div style={{ display: 'flex', gap: '0.4rem' }}>
-                      <button className="ag-btn-secondary" title="Editar" onClick={() => handleOpenEdit(row)}>
-                        <Edit3 size={14} /> Editar
-                      </button>
-                      <button
-                        className="ag-btn-secondary"
-                        style={{ color: '#dc2626' }}
-                        title="Eliminar"
+                  <td className="ag-row-actions-cell">
+                    <div className="ag-row-actions">
+                      <Button variant="secondary" size="sm" icon={Edit3} onClick={() => handleOpenEdit(row)}>
+                        Editar
+                      </Button>
+                      <Button
+                        variant="danger"
+                        size="sm"
+                        icon={Trash2}
+                        className="ag-btn-danger"
                         onClick={() => handleDelete(row)}
                       >
-                        <Trash2 size={14} /> Eliminar
-                      </button>
+                        Eliminar
+                      </Button>
                     </div>
                   </td>
                 </tr>
@@ -238,87 +279,104 @@ export default function DatabaseManagerPanel({ adminUserId, lockedProgramId = nu
         </table>
       </div>
 
-      {modalOpen && (
-        <div className="ag-modal-overlay">
-          <div className="ag-modal">
-            <div className="ag-modal-header">
-              <h3>{editingRow ? 'Editar registro' : 'Nuevo registro'} — {currentTableCfg?.label}</h3>
-              <button className="ag-modal-close" onClick={() => setModalOpen(false)}><X size={18} /></button>
-            </div>
-            <form onSubmit={handleSave}>
-              <div className="ag-modal-body">
-                {currentTableCfg?.columns.map((c) => (
-                  <div className="ag-form-group" key={c.name}>
-                    <label>{c.label}{c.required ? ' *' : ''}:</label>
-                    {c.type === 'textarea' ? (
-                      <textarea
-                        className="ag-form-input"
-                        required={c.required}
-                        value={formData[c.name] ?? ''}
-                        onChange={(e) => setFormData({ ...formData, [c.name]: e.target.value })}
-                      />
-                    ) : c.type === 'boolean' ? (
-                      <select
-                        className="ag-form-input"
-                        value={formData[c.name] ? 'true' : 'false'}
-                        onChange={(e) => setFormData({ ...formData, [c.name]: e.target.value === 'true' })}
-                      >
-                        <option value="true">Sí</option>
-                        <option value="false">No</option>
-                      </select>
-                    ) : c.type === 'select' && lockedProgramId && c.name === 'program_id' ? (
-                      // Administrador de Programa: el programa no se puede cambiar.
-                      <input
-                        className="ag-form-input"
-                        type="text"
-                        disabled
-                        value={
-                          filterPrograms?.find((p) => String(p.program_id) === String(lockedProgramId))?.name
-                          || (fkOptions.programs || []).find((p) => String(p.program_id) === String(lockedProgramId))?.name
-                          || 'Tu programa académico'
-                        }
-                      />
-                    ) : c.type === 'select' ? (
-                      <select
-                        className="ag-form-input"
-                        required={c.required}
-                        value={formData[c.name] ?? ''}
-                        onChange={(e) => setFormData({ ...formData, [c.name]: e.target.value })}
-                      >
-                        <option value="">
-                          {currentTableCfg?.programScoped && c.name === 'program_id'
-                            ? 'Todos los programas'
-                            : '-- Selecciona --'}
-                        </option>
-                        {(fkOptions[c.fk] || []).map((opt) => {
-                          const fkCfg = tables.find((t) => t.key === c.fk);
-                          const pkVal = opt[fkCfg?.pk];
-                          const labelVal = opt.name || opt.title || opt.description || `#${pkVal}`;
-                          return <option key={pkVal} value={pkVal}>{labelVal}</option>;
-                        })}
-                      </select>
-                    ) : (
-                      <input
-                        type={c.type === 'number' ? 'number' : c.type === 'date' ? 'date' : 'text'}
-                        className="ag-form-input"
-                        required={c.required}
-                        value={formData[c.name] ?? ''}
-                        onChange={(e) => setFormData({ ...formData, [c.name]: e.target.value })}
-                      />
-                    )}
-                  </div>
-                ))}
-              </div>
-              <div className="ag-modal-footer">
-                <button type="button" className="ag-btn-secondary" onClick={() => setModalOpen(false)}>Cancelar</button>
-                <button type="submit" className="ag-btn-primary" disabled={saving}>
-                  {saving ? 'Guardando...' : 'Guardar'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* Editor de registro. Era el último modal escrito a mano de la pantalla:
+          sin foco atrapado, sin Escape y sin role="dialog".
+
+          Los rótulos de sus campos tampoco estaban asociados a ningún control,
+          y no podían estarlo con un id escrito a mano: se generan dentro de un
+          .map(), así que un id fijo se habría repetido en cada columna.
+          FormField lo resuelve porque cada instancia pide el suyo a useId. */}
+      <Modal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title={`${editingRow ? 'Editar registro' : 'Nuevo registro'} — ${currentTableCfg?.label || ''}`}
+        footer={(
+          <>
+            <Button variant="secondary" onClick={() => setModalOpen(false)}>Cancelar</Button>
+            <Button type="submit" form="ag-db-row-form" loading={saving}>Guardar</Button>
+          </>
+        )}
+      >
+        <form id="ag-db-row-form" className="ag-form" onSubmit={handleSave}>
+          {currentTableCfg?.columns.map((c) => (
+            <FormField key={c.name} label={c.label} required={c.required}>
+              {(field) => {
+                if (c.type === 'textarea') {
+                  return (
+                    <textarea
+                      {...field}
+                      value={formData[c.name] ?? ''}
+                      onChange={(e) => setFormData({ ...formData, [c.name]: e.target.value })}
+                    />
+                  );
+                }
+                if (c.type === 'boolean') {
+                  return (
+                    <select
+                      {...field}
+                      /* Una casilla booleana nunca es obligatoria: siempre tiene
+                         uno de los dos valores. */
+                      required={undefined}
+                      value={formData[c.name] ? 'true' : 'false'}
+                      onChange={(e) => setFormData({ ...formData, [c.name]: e.target.value === 'true' })}
+                    >
+                      <option value="true">Sí</option>
+                      <option value="false">No</option>
+                    </select>
+                  );
+                }
+                // Administrador de Programa: el programa es el suyo y no se
+                // puede cambiar, así que en vez del selector se muestra su
+                // nombre en un campo inhabilitado.
+                if (c.type === 'select' && lockedProgramId && c.name === 'program_id') {
+                  return (
+                    <input
+                      {...field}
+                      type="text"
+                      disabled
+                      value={
+                        filterPrograms?.find((p) => String(p.program_id) === String(lockedProgramId))?.name
+                        || (fkOptions.programs || []).find((p) => String(p.program_id) === String(lockedProgramId))?.name
+                        || 'Tu programa académico'
+                      }
+                      readOnly
+                    />
+                  );
+                }
+                if (c.type === 'select') {
+                  return (
+                    <select
+                      {...field}
+                      value={formData[c.name] ?? ''}
+                      onChange={(e) => setFormData({ ...formData, [c.name]: e.target.value })}
+                    >
+                      <option value="">
+                        {currentTableCfg?.programScoped && c.name === 'program_id'
+                          ? 'Todos los programas'
+                          : '-- Selecciona --'}
+                      </option>
+                      {(fkOptions[c.fk] || []).map((opt) => {
+                        const fkCfg = tables.find((t) => t.key === c.fk);
+                        const pkVal = opt[fkCfg?.pk];
+                        const labelVal = opt.name || opt.title || opt.description || `#${pkVal}`;
+                        return <option key={pkVal} value={pkVal}>{labelVal}</option>;
+                      })}
+                    </select>
+                  );
+                }
+                return (
+                  <input
+                    {...field}
+                    type={c.type === 'number' ? 'number' : c.type === 'date' ? 'date' : 'text'}
+                    value={formData[c.name] ?? ''}
+                    onChange={(e) => setFormData({ ...formData, [c.name]: e.target.value })}
+                  />
+                );
+              }}
+            </FormField>
+          ))}
+        </form>
+      </Modal>
     </div>
   );
 }

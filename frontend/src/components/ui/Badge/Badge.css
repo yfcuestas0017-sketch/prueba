@@ -1,0 +1,68 @@
+/* ==========================================================================
+   DISTINTIVOS DE ESTADO
+
+   Los colores se construyen con color-mix sobre los tokens de acento, de modo
+   que cambian con el tema en lugar de quedarse fijos, y el texto usa el tono
+   pleno sobre un fondo muy diluido: esa combinación es la que mantiene el
+   contraste por encima de 4,5:1 en claro y en oscuro.
+   ========================================================================== */
+
+.ui-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 3px var(--sp-2);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+
+.ui-badge--sm {
+  padding: 2px var(--sp-2);
+  font-size: var(--fs-2xs);
+}
+
+.ui-badge--neutral {
+  color: var(--text-secondary);
+  background: var(--bg-primary);
+  border-color: var(--border-color);
+}
+
+.ui-badge--info {
+  color: var(--accent-primary);
+  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent-primary) 30%, transparent);
+}
+
+.ui-badge--accent {
+  color: var(--text-inverse);
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
+.ui-badge--success {
+  color: #047857;
+  background: color-mix(in srgb, var(--accent-success) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent-success) 32%, transparent);
+}
+
+.ui-badge--warning {
+  color: #92400e;
+  background: rgba(245, 158, 11, 0.14);
+  border-color: rgba(245, 158, 11, 0.32);
+}
+
+.ui-badge--danger {
+  color: var(--accent-danger);
+  background: color-mix(in srgb, var(--accent-danger) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent-danger) 30%, transparent);
+}
+
+/* Sobre fondo oscuro los tonos plenos de verde y ámbar no se distinguen: se
+   aclaran para conservar el contraste. */
+[data-theme='dark'] .ui-badge--success { color: #34d399; }
+[data-theme='dark'] .ui-badge--warning { color: #fbbf24; }
+[data-theme='dark'] .ui-badge--danger  { color: #fda4af; }

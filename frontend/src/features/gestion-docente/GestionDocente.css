@@ -209,13 +209,17 @@
       @keyframes slideUp { from{opacity:0;transform:translateY(20px) scale(.97)} to{opacity:1;transform:translateY(0) scale(1)} }
 
       @media(max-width:768px) {
+        .gd-header { flex-direction:column; align-items:stretch; }
+        .gd-search-bar { min-width:0; max-width:none; width:100%; }
+        .gd-program-select-wrap { min-width:0; width:100%; }
         .gd-grid { grid-template-columns:1fr; }
         .gd-meta,.dp-stats,.dp-fields { grid-template-columns:1fr; }
-        .form-grid { grid-template-columns:1fr; }
-        .form-span { grid-column:span 1; }
+        .form-grid,.gd-add-form { grid-template-columns:1fr; }
+        .form-span,.gd-add-actions { grid-column:span 1; }
         .form-actions { grid-column:span 1; }
         .gd-card { flex-direction:column; }
         .dp-body { padding:20px 16px; }
-        .gd-modal { padding:20px 16px; }
+        .gd-modal { padding:20px 16px; width: 95vw; max-height: 90dvh; overflow-y: auto; }
       }
+
     

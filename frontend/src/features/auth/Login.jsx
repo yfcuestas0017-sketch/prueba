@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
-import { AlertCircle, Eye, EyeOff, UserPlus, LogIn } from 'lucide-react';
+import { Eye, EyeOff, UserPlus, LogIn } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../lib/api';
-import Button from '../../components/ui/Button';
+import { Button, FormField, Alert } from '../../components/ui';
 import './Login.css';
 
 /* ─── mode toggle ─────────────────────────────────────────── */
@@ -141,48 +141,52 @@ export default function Login() {
               </p>
             </div>
 
-            {/* ALERTS */}
-            {error && (
-              <div className="login-error">
-                <AlertCircle size={16} />
-                <span>{error}</span>
-              </div>
-            )}
-            {success && (
-              <div className="login-success">
-                <span>{success}</span>
-              </div>
-            )}
+            {/* Avisos. El componente Alert lleva role="alert" en los errores y
+                aria-live="polite" en los exitos: antes, quien usa lector de
+                pantalla escribia mal la contrasena y no recibia ninguna senal
+                de que hubiera fallado nada. */}
+            {error && <Alert type="error">{error}</Alert>}
+            {success && <Alert type="success">{success}</Alert>}
 
             {/* ── LOGIN FORM ── */}
             {mode === MODES.login && (
               <form onSubmit={handleLogin} className="login-form">
-                <div className="field">
-                  <label className="field-label">Correo institucional *</label>
-                  <input
-                    type="email" required autoFocus
-                    value={loginForm.email}
-                    onChange={setLog('email')}
-                    placeholder="usuario@universidad.edu.co"
-                    className="field-input"
-                  />
-                </div>
-                <div className="field">
-                  <label className="field-label">Contraseña *</label>
-                  <div style={{ position: 'relative' }}>
+                <FormField label="Correo institucional" required>
+                  {(props) => (
                     <input
-                      type={showPass ? 'text' : 'password'} required
-                      value={loginForm.password}
-                      onChange={setLog('password')}
-                      placeholder="••••••••"
-                      className="field-input"
-                      style={{ paddingRight: '44px' }}
+                      {...props}
+                      type="email" autoFocus
+                      value={loginForm.email}
+                      onChange={setLog('email')}
+                      placeholder="usuario@universidad.edu.co"
+                      autoComplete="email"
                     />
-                    <button type="button" className="pass-toggle" onClick={() => setShowPass((p) => !p)}>
-                      {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
-                    </button>
-                  </div>
-                </div>
+                  )}
+                </FormField>
+
+                <FormField label="Contraseña" required>
+                  {(props) => (
+                    <div className="ui-field-adorned">
+                      <input
+                        {...props}
+                        type={showPass ? 'text' : 'password'}
+                        value={loginForm.password}
+                        onChange={setLog('password')}
+                        placeholder="••••••••"
+                        autoComplete="current-password"
+                      />
+                      <button
+                        type="button"
+                        className="ui-field-adornment"
+                        onClick={() => setShowPass((p) => !p)}
+                        aria-label={showPass ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                        aria-pressed={showPass}
+                      >
+                        {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  )}
+                </FormField>
 
                 <Button type="submit" loading={loading} fullWidth size="lg">
                   {loading ? 'Ingresando...' : 'Ingresar'}
@@ -200,67 +204,75 @@ export default function Login() {
             {mode === MODES.register && (
               <form onSubmit={handleRegister} className="login-form">
 
-                {/* 1. Nombre completo */}
-                <div className="field">
-                  <label className="field-label">Nombre completo *</label>
-                  <input
-                    type="text" required autoFocus
-                    value={regForm.fullName}
-                    onChange={setReg('fullName')}
-                    placeholder="Ej: María Pérez González"
-                    className="field-input"
-                    minLength={3}
-                  />
-                </div>
-
-                {/* 2. Correo electrónico */}
-                <div className="field">
-                  <label className="field-label">Correo electrónico *</label>
-                  <input
-                    type="email" required
-                    value={regForm.email}
-                    onChange={setReg('email')}
-                    placeholder="usuario@universidad.edu.co"
-                    className="field-input"
-                  />
-                </div>
-
-                {/* 3. Contraseña */}
-                <div className="field">
-                  <label className="field-label">Contraseña *</label>
-                  <div style={{ position: 'relative' }}>
+                <FormField label="Nombre completo" required>
+                  {(props) => (
                     <input
-                      type={showPass ? 'text' : 'password'} required
-                      value={regForm.password}
-                      onChange={setReg('password')}
-                      placeholder="Mínimo 8 caracteres"
-                      className="field-input"
-                      style={{ paddingRight: '44px' }}
-                      minLength={8}
+                      {...props}
+                      type="text" autoFocus
+                      value={regForm.fullName}
+                      onChange={setReg('fullName')}
+                      placeholder="Ej: María Pérez González"
+                      minLength={3}
+                      autoComplete="name"
                     />
-                    <button type="button" className="pass-toggle" onClick={() => setShowPass((p) => !p)}>
-                      {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
-                    </button>
-                  </div>
-                </div>
+                  )}
+                </FormField>
 
-                <div className="field">
-                  <label className="field-label">Semestre académico *</label>
-                  <select
-                    required
-                    value={regForm.semesterId}
-                    onChange={setReg('semesterId')}
-                    className="field-input"
-                    disabled={semestersLoading}
-                  >
-                    <option value="">{semestersLoading ? 'Cargando semestres...' : 'Selecciona tu semestre'}</option>
-                    {semesters.map((semester) => (
-                      <option key={semester.semester_id} value={semester.semester_id}>
-                        {semester.semester_number}° semestre
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <FormField label="Correo electrónico" required>
+                  {(props) => (
+                    <input
+                      {...props}
+                      type="email"
+                      value={regForm.email}
+                      onChange={setReg('email')}
+                      placeholder="usuario@universidad.edu.co"
+                      autoComplete="email"
+                    />
+                  )}
+                </FormField>
+
+                <FormField label="Contraseña" required hint="Mínimo 8 caracteres.">
+                  {(props) => (
+                    <div className="ui-field-adorned">
+                      <input
+                        {...props}
+                        type={showPass ? 'text' : 'password'}
+                        value={regForm.password}
+                        onChange={setReg('password')}
+                        placeholder="Mínimo 8 caracteres"
+                        minLength={8}
+                        autoComplete="new-password"
+                      />
+                      <button
+                        type="button"
+                        className="ui-field-adornment"
+                        onClick={() => setShowPass((p) => !p)}
+                        aria-label={showPass ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                        aria-pressed={showPass}
+                      >
+                        {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  )}
+                </FormField>
+
+                <FormField label="Semestre académico" required>
+                  {(props) => (
+                    <select
+                      {...props}
+                      value={regForm.semesterId}
+                      onChange={setReg('semesterId')}
+                      disabled={semestersLoading}
+                    >
+                      <option value="">{semestersLoading ? 'Cargando semestres...' : 'Selecciona tu semestre'}</option>
+                      {semesters.map((semester) => (
+                        <option key={semester.semester_id} value={semester.semester_id}>
+                          {semester.semester_number}° semestre
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </FormField>
 
                 {/* Nota: rol asignado automáticamente */}
                 <div className="reg-role-note">

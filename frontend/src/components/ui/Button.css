@@ -30,7 +30,7 @@
   box-shadow: 0 4px 14px rgba(31, 91, 163, 0.25);
 }
 .btn--primary:hover:not(:disabled) {
-  background: linear-gradient(135deg, #2C3967 0%, #1F5BA3 100%);
+  background: linear-gradient(135deg, var(--accent-primary-hover) 0%, var(--accent-primary) 100%);
   transform: translateY(-1px);
   box-shadow: 0 6px 18px rgba(31, 91, 163, 0.35);
 }
@@ -41,7 +41,7 @@
   box-shadow: 0 4px 14px rgba(186, 24, 40, 0.25);
 }
 .btn--secondary:hover:not(:disabled) {
-  background: linear-gradient(135deg, #E00F38 0%, #BA1828 100%);
+  background: linear-gradient(135deg, var(--accent-danger) 0%, var(--accent-secondary) 100%);
   transform: translateY(-1px);
   box-shadow: 0 6px 18px rgba(224, 15, 56, 0.35);
 }
@@ -73,7 +73,7 @@
   color: #ffffff;
 }
 .btn--danger:hover:not(:disabled) {
-  background: linear-gradient(135deg, #E00F38 0%, #BA1828 100%);
+  background: linear-gradient(135deg, var(--accent-danger) 0%, var(--accent-secondary) 100%);
   transform: translateY(-1px);
   box-shadow: 0 4px 14px rgba(224, 15, 56, 0.3);
 }

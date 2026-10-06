@@ -139,7 +139,12 @@
             color: #ffffff !important;
             background: var(--sidebar-active-bg) !important;
             font-weight: 700;
-            box-shadow: inset 3px 0 0 #E00F38;
+            /* Antes era el rojo institucional fijo. --sidebar-accent existe
+               justamente para esto y sí cambia con el tema: en el tema por
+               defecto vale ese mismo rojo, así que nada cambia ahí, pero en
+               oscuro, ocean, forest y violet la barra de la opción activa deja
+               de desentonar con el resto de la barra lateral. */
+            box-shadow: inset 3px 0 0 var(--sidebar-accent);
           }
 
           .sidebar-link svg {
@@ -169,7 +174,7 @@
           .sidebar-user-avatar {
             width: 32px;
             height: 32px;
-            background: #E00F38;
+            background: var(--accent-danger);
             color: #ffffff;
             border-radius: 8px;
             display: flex;
@@ -218,7 +223,7 @@
           }
 
           .sidebar-logout:hover {
-            color: #E00F38;
+            color: var(--accent-danger);
           }
 
           @media (max-width: 768px) {

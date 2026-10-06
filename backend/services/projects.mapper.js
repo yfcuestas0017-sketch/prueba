@@ -92,6 +92,8 @@ export function buildProjectBase(p, participants = [], defaults = {}) {
     created_at: p.created_at,
     finished_at: p.finished_at,
     letterLink: p.letter_link,
+    generalObjective: p.general_objective || null,
+    specificObjectives: p.specific_objectives || null,
     statusId: p.status_id,
     status: conDefecto(p.status_name, defaults.status, p),
     modalityId: p.modality_id,

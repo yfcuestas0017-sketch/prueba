@@ -94,8 +94,26 @@ export const login = async (req, res) => {
       permissions = permRes.rows.map(r => r.name);
     }
 
-    const role = (primaryRoleRow?.role_name || 'estudiante').toLowerCase();
-    const roleNames = roleRows.map((r) => r.role_name).filter(Boolean);
+    // Inferencia de respaldo si no hay filas en user_roles
+    let inferredRole = 'estudiante';
+    let inferredRoleId = 3;
+    const uid = String(user.user_id || '').toLowerCase();
+    const uemail = String(user.email || '').toLowerCase();
+    if (uid.startsWith('doc') || uemail.includes('docente')) {
+      inferredRole = 'docente';
+      inferredRoleId = 2;
+    } else if (uid.startsWith('admin') || uemail.includes('admin')) {
+      inferredRole = 'administrador';
+      inferredRoleId = 1;
+    } else if (uid.startsWith('pla') || uemail.includes('planeacion')) {
+      inferredRole = 'planeación';
+      inferredRoleId = 4;
+    }
+
+    const role = (primaryRoleRow?.role_name || inferredRole).toLowerCase();
+    const roleNames = roleRows.length > 0
+      ? roleRows.map((r) => r.role_name).filter(Boolean)
+      : [inferredRole.charAt(0).toUpperCase() + inferredRole.slice(1)];
 
     const sessionUser = {
       id: String(user.user_id),
@@ -110,7 +128,7 @@ export const login = async (req, res) => {
       roles: roleNames,
       // Del rol principal, no de result.rows[0]: con varios roles esa primera
       // fila no tiene por qué ser la del rol que manda.
-      roleId: primaryRoleRow?.role_id || 3,
+      roleId: primaryRoleRow?.role_id || inferredRoleId,
       permissions,
       programId: user.program_id,
       programName: user.program_name || null,

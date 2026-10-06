@@ -607,6 +607,64 @@ export const selectProjectBankIdea = async (req, res) => {
         throw new HttpError(409, 'El proyecto fue asignado a otro estudiante hace un instante.');
       }
 
+      // Generar código para el proyecto formal
+      let prefix = 'PR';
+      if (targetProject.research_line_id) {
+        const lineRes = await client.query('SELECT name FROM public.research_lines WHERE research_line_id = $1', [targetProject.research_line_id]);
+        if (lineRes.rows.length > 0) {
+          const ignoredWords = new Set(['de', 'del', 'la', 'las', 'el', 'los', 'y', 'para', 'con', 'en']);
+          const words = (lineRes.rows[0].name || '').split(/\s+/);
+          const letters = words
+            .filter(w => !ignoredWords.has(w.toLowerCase()))
+            .map(w => w.charAt(0).toUpperCase())
+            .join('');
+          if (letters) prefix = letters;
+        }
+      }
+      const existingCodes = await client.query("SELECT code FROM public.projects WHERE code LIKE $1", [`${prefix}-%`]);
+      let maxNum = 0;
+      for (const r of existingCodes.rows) {
+        const num = parseInt((r.code || '').split('-')[1], 10);
+        if (!isNaN(num) && num > maxNum) maxNum = num;
+      }
+      const projectCode = `${prefix}-${maxNum + 1}`;
+
+      // 1. Crear el proyecto oficial en public.projects
+      const projInsertRes = await client.query(
+        `INSERT INTO public.projects
+           (title, code, status_id, modality_id, research_line_id, research_subline_id, degree_option_id, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
+         RETURNING *;`,
+        [
+          targetProject.title.trim(),
+          projectCode,
+          1, // En revisión / inicial
+          1, // Presencial
+          targetProject.research_line_id || null,
+          targetProject.research_subline_id || null,
+          3, // Proyecto de Investigación
+        ]
+      );
+      const createdOfficialProject = projInsertRes.rows[0];
+
+      // 2. Vincular al estudiante como autor en public.user_projects
+      await client.query(
+        `INSERT INTO public.user_projects (project_id, user_id, project_role)
+         VALUES ($1, $2, 'autor');`,
+        [createdOfficialProject.project_id, studentId]
+      );
+
+      // 3. Registrar en public.histories y public.project_histories
+      const projHistRes = await client.query(
+        `INSERT INTO public.histories (description, change_type, user_id)
+         VALUES ($1, 'CREATE', $2) RETURNING history_id;`,
+        ['Proyecto seleccionado y registrado desde el Banco de Proyectos', studentId]
+      );
+      await client.query(
+        `INSERT INTO public.project_histories (project_id, history_id) VALUES ($1, $2);`,
+        [createdOfficialProject.project_id, projHistRes.rows[0].history_id]
+      );
+
       // El historial va dentro de la misma transaccion, pero bajo un SAVEPOINT
       // propio: si su INSERT falla, se descarta solo esa anotacion y la
       // asignacion sigue en pie. Es la misma pauta que usa logAdminTrace, y
@@ -625,6 +683,8 @@ export const selectProjectBankIdea = async (req, res) => {
             assigned_student_id: studentId,
             student_name: studentCtx.full_name,
             student_program_id: studentCtx.program_id,
+            official_project_id: createdOfficialProject.project_id,
+            official_project_code: projectCode,
             previous_status: 'Disponible',
             new_status: 'Asignado',
           },
@@ -635,11 +695,14 @@ export const selectProjectBankIdea = async (req, res) => {
         console.error('No se pudo registrar el historial de la seleccion:', errorHistorial);
       }
 
-      return assignRes.rows[0];
+      return {
+        ...assignRes.rows[0],
+        official_project: createdOfficialProject,
+      };
     });
 
     res.json({
-      message: 'Proyecto seleccionado correctamente.',
+      message: 'Proyecto seleccionado correctamente y registrado en Gestión de Proyectos.',
       project: asignado,
     });
   } catch (err) {
@@ -696,6 +759,88 @@ export const getStudentAssignedProject = async (req, res) => {
 
     res.json({ hasAssignedProject: true, project: result.rows[0] });
   } catch (err) {
-    return sendError(res, err, 'Get student assigned project error:', 'Error al consultar proyecto asignado.');
+    return sendError(res, err, 'Get student assigned project error:', 'Error al consultar asignación.');
+  }
+};
+
+/**
+ * Reconcilia y asegura que todas las ideas marcadas como 'Asignado' en public.project_bank
+ * tengan su correspondiente proyecto en public.projects y public.user_projects.
+ */
+export const syncAssignedProjectBankIdeas = async (dbPool = pool) => {
+  try {
+    const assignedIdeas = await dbPool.query(
+      `SELECT pb.*, u.full_name as student_name
+       FROM public.project_bank pb
+       JOIN public.users u ON u.user_id = pb.assigned_student_id
+       WHERE pb.status = 'Asignado' AND pb.assigned_student_id IS NOT NULL`
+    );
+
+    for (const idea of assignedIdeas.rows) {
+      const studentId = String(idea.assigned_student_id);
+      const studentTitle = idea.title.trim();
+
+      const existingProjectRes = await dbPool.query(
+        `SELECT p.project_id
+         FROM public.user_projects up
+         JOIN public.projects p ON p.project_id = up.project_id
+         WHERE up.user_id = $1 AND LOWER(TRIM(p.title)) = LOWER(TRIM($2))`,
+        [studentId, studentTitle]
+      );
+
+      if (existingProjectRes.rows.length === 0) {
+        let prefix = 'PR';
+        if (idea.research_line_id) {
+          const lineRes = await dbPool.query('SELECT name FROM public.research_lines WHERE research_line_id = $1', [idea.research_line_id]);
+          if (lineRes.rows.length > 0) {
+            const ignoredWords = new Set(['de', 'del', 'la', 'las', 'el', 'los', 'y', 'para', 'con', 'en']);
+            const words = (lineRes.rows[0].name || '').split(/\s+/);
+            const letters = words
+              .filter(w => !ignoredWords.has(w.toLowerCase()))
+              .map(w => w.charAt(0).toUpperCase())
+              .join('');
+            if (letters) prefix = letters;
+          }
+        }
+        const existingCodes = await dbPool.query("SELECT code FROM public.projects WHERE code LIKE $1", [`${prefix}-%`]);
+        let maxNum = 0;
+        for (const r of existingCodes.rows) {
+          const num = parseInt((r.code || '').split('-')[1], 10);
+          if (!isNaN(num) && num > maxNum) maxNum = num;
+        }
+        const projectCode = `${prefix}-${maxNum + 1}`;
+
+        const insertRes = await dbPool.query(
+          `INSERT INTO public.projects
+             (title, code, status_id, modality_id, research_line_id, research_subline_id, degree_option_id, created_at)
+           VALUES ($1, $2, 1, 1, $3, $4, 3, COALESCE($5, CURRENT_TIMESTAMP))
+           RETURNING project_id`,
+          [studentTitle, projectCode, idea.research_line_id || null, idea.research_subline_id || null, idea.assigned_at]
+        );
+        const newProjId = insertRes.rows[0].project_id;
+
+        await dbPool.query(
+          `INSERT INTO public.user_projects (project_id, user_id, project_role)
+           VALUES ($1, $2, 'autor')`,
+          [newProjId, studentId]
+        );
+
+        const hist = await dbPool.query(
+          `INSERT INTO public.histories (description, change_type, user_id)
+           VALUES ('Proyecto sincronizado desde Banco de Proyectos', 'CREATE', $1)
+           RETURNING history_id`,
+          [studentId]
+        );
+        await dbPool.query(
+          `INSERT INTO public.project_histories (project_id, history_id)
+           VALUES ($1, $2)`,
+          [newProjId, hist.rows[0].history_id]
+        );
+
+        console.log(`[Sync Banco] Proyecto creado para estudiante ${studentId}: "${studentTitle}" (ID: ${newProjId}, Código: ${projectCode})`);
+      }
+    }
+  } catch (err) {
+    console.error('[Sync Banco] Error al sincronizar ideas asignadas:', err);
   }
 };

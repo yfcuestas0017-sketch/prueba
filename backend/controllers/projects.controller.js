@@ -163,6 +163,24 @@ export const createResearchDocument = async (req, res) => {
     const document = await withTransaction(pool, async (client) => {
       const access = await canRegisterResearchRecord(client, projectId, userId, [9, 10]);
       if (!access.allowed) throw new HttpError(403, access.error);
+
+      const projStatusRes = await client.query(
+        `SELECT s.name FROM public.projects p LEFT JOIN public.statuses s ON s.status_id = p.status_id WHERE p.project_id = $1`,
+        [projectId]
+      );
+      const statusName = (projStatusRes.rows[0]?.name || '').toLowerCase();
+      if (['finalizado', 'terminado', 'completado', 'sustentado'].some(w => statusName.includes(w))) {
+        throw new HttpError(400, 'El proyecto ya se encuentra finalizado y no permite nuevos documentos.');
+      }
+
+      const existingDoc = await client.query(
+        `SELECT document_id FROM public.research_documents WHERE project_id = $1 AND document_type = $2 LIMIT 1`,
+        [projectId, String(documentType).trim()]
+      );
+      if (existingDoc.rows.length > 0) {
+        throw new HttpError(400, 'El documento ya ha sido registrado previamente y no puede ser modificado.');
+      }
+
       const result = await client.query(
         `INSERT INTO public.research_documents (project_id, user_id, document_type, file_url, observations)
          VALUES ($1, $2, $3, $4, $5)
@@ -217,8 +235,14 @@ export const getProjects = async (req, res) => {
 };
 
 export const createProject = async (req, res) => {
-  const { title, code, statusId, modalityId, lineId, sublineId, letterLink, degreeOptionId, degree_option_id, creatorUserId, coauthors } = req.body;
+  const {
+    title, code, statusId, modalityId, lineId, sublineId, letterLink,
+    degreeOptionId, degree_option_id, creatorUserId, coauthors,
+    generalObjective, general_objective, specificObjectives, specific_objectives
+  } = req.body;
   const finalDegreeOptionId = (degreeOptionId !== undefined ? degreeOptionId : degree_option_id) ? parseInt(degreeOptionId || degree_option_id, 10) : null;
+  const finalGeneralObjective = (generalObjective !== undefined ? generalObjective : general_objective) ? String(generalObjective || general_objective).trim() : null;
+  const finalSpecificObjectives = (specificObjectives !== undefined ? specificObjectives : specific_objectives) ? String(specificObjectives || specific_objectives).trim() : null;
 
   if (!title) {
     return res.status(400).json({ error: 'El título del proyecto es obligatorio.' });
@@ -283,9 +307,9 @@ export const createProject = async (req, res) => {
 
     const insertProjectQuery = `
       INSERT INTO public.projects 
-        (title, code, status_id, modality_id, research_line_id, research_subline_id, letter_link, degree_option_id)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-      RETURNING project_id, title, code, created_at, status_id, modality_id, research_line_id, research_subline_id, letter_link, degree_option_id;
+        (title, code, status_id, modality_id, research_line_id, research_subline_id, letter_link, degree_option_id, general_objective, specific_objectives)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      RETURNING project_id, title, code, created_at, status_id, modality_id, research_line_id, research_subline_id, letter_link, degree_option_id, general_objective, specific_objectives;
     `;
     const projRes = await client.query(insertProjectQuery, [
       title.trim(),
@@ -296,6 +320,8 @@ export const createProject = async (req, res) => {
       sublineId ? parseInt(sublineId, 10) : null,
       letterLink ? letterLink.trim() : null,
       finalDegreeOptionId,
+      finalGeneralObjective,
+      finalSpecificObjectives,
     ]);
 
     const proyecto = projRes.rows[0];
@@ -343,15 +369,29 @@ export const createProject = async (req, res) => {
 
 export const updateProject = async (req, res) => {
   const projectId = parseInt(req.params.id, 10);
-  const { title, code, statusId, modalityId, lineId, sublineId, letterLink, degreeOptionId, degree_option_id } = req.body;
+  const {
+    title, code, statusId, modalityId, lineId, sublineId, letterLink,
+    degreeOptionId, degree_option_id,
+    generalObjective, general_objective, specificObjectives, specific_objectives
+  } = req.body;
   const actingUserId = actorId(req);
 
   if (isNaN(projectId)) return res.status(400).json({ error: 'ID de proyecto inválido.' });
 
   try {
     const proyectoActualizado = await withTransaction(pool, async (client) => {
-    // Editar un proyecto requiere ser administrativo o formar parte de él.
-    await exigirPermisoSobreProyecto(client, projectId, actingUserId);
+    // Editar un proyecto requiere ser administrativo (Admin, Admin General) o Docente Asesor asignado
+    if (!actingUserId) {
+      throw new HttpError(401, 'Debes iniciar sesión para realizar esta acción.');
+    }
+    const contexto = await getUserContext(client, actingUserId);
+    const vinculo = await getProjectMembership(client, projectId, actingUserId);
+    const esAdmin = esRolAdministrativo(contexto?.role_name);
+    const esAsesor = vinculo?.project_role === 'asesor';
+
+    if (!esAdmin && !esAsesor) {
+      throw new HttpError(403, 'Solo el docente asesor asignado o los administradores pueden modificar los datos y objetivos del proyecto.');
+    }
 
     const currentRes = await client.query(`
       SELECT p.*, s.name as status_name, m.name as modality_name, rl.name as line_name, rsl.name as subline_name, dopt.name as degree_option_name
@@ -375,6 +415,12 @@ export const updateProject = async (req, res) => {
     const finalSublineId = sublineId !== undefined ? (sublineId ? parseInt(sublineId, 10) : null) : oldProj.research_subline_id;
     const targetDegOpt = degreeOptionId !== undefined ? degreeOptionId : degree_option_id;
     const finalDegreeOptionId = targetDegOpt !== undefined ? (targetDegOpt ? parseInt(targetDegOpt, 10) : null) : oldProj.degree_option_id;
+    const finalGeneralObj = (generalObjective !== undefined || general_objective !== undefined)
+      ? ((generalObjective || general_objective)?.trim() || null)
+      : oldProj.general_objective;
+    const finalSpecificObjs = (specificObjectives !== undefined || specific_objectives !== undefined)
+      ? ((specificObjectives || specific_objectives)?.trim() || null)
+      : oldProj.specific_objectives;
 
     const updateQuery = `
       UPDATE public.projects
@@ -385,8 +431,10 @@ export const updateProject = async (req, res) => {
           research_line_id = $5,
           research_subline_id = $6,
           letter_link = $7,
-          degree_option_id = $8
-      WHERE project_id = $9
+          degree_option_id = $8,
+          general_objective = $9,
+          specific_objectives = $10
+      WHERE project_id = $11
       RETURNING *;
     `;
     const updateRes = await client.query(updateQuery, [
@@ -398,6 +446,8 @@ export const updateProject = async (req, res) => {
       finalSublineId,
       letterLink !== undefined ? (letterLink ? letterLink.trim() : null) : oldProj.letter_link,
       finalDegreeOptionId,
+      finalGeneralObj,
+      finalSpecificObjs,
       projectId,
     ]);
 
@@ -419,6 +469,14 @@ export const updateProject = async (req, res) => {
 
     if (code !== undefined && (code || '').trim() !== (oldProj.code || '').trim()) {
       await logHistory(`Modificación de código: "${oldProj.code || 'Sin código'}" → "${code ? code.trim() : 'Sin código'}"`, 'code', oldProj.code || 'Sin código', code ? code.trim() : 'Sin código');
+    }
+
+    if (finalGeneralObj !== oldProj.general_objective) {
+      await logHistory(`Modificación de objetivo general`, 'general_objective', oldProj.general_objective, finalGeneralObj);
+    }
+
+    if (finalSpecificObjs !== oldProj.specific_objectives) {
+      await logHistory(`Modificación de objetivos específicos`, 'specific_objectives', oldProj.specific_objectives, finalSpecificObjs);
     }
 
     if (statusId !== undefined && finalStatusId !== oldProj.status_id) {
@@ -484,27 +542,93 @@ export const updateProjectParticipants = async (req, res) => {
 
   try {
     await withTransaction(pool, async (client) => {
-      // Cambiar quién figura como autor, asesor o jurado de un proyecto es una
-      // decisión administrativa, no algo que pueda hacer cualquiera que tenga
-      // sesión abierta.
-      await exigirPermisoSobreProyecto(client, projectId, actingUserId, { soloAdministrativo: true });
+      const userCtx = await exigirPermisoSobreProyecto(client, projectId, actingUserId, { soloAdministrativo: false });
+      const isAdmin = esRolAdministrativo(userCtx?.role_name);
+
+      const membership = await getProjectMembership(client, projectId, actingUserId);
+      const isAuthor = membership && membership.project_role === 'autor';
+
+      if (!isAdmin && !isAuthor) {
+        throw new HttpError(403, 'Solo los administradores o el estudiante autor del proyecto pueden modificar los integrantes.');
+      }
 
       const projRes = await client.query('SELECT project_id, title FROM public.projects WHERE project_id = $1', [projectId]);
       if (projRes.rows.length === 0) {
         throw new HttpError(404, 'Proyecto no encontrado.');
       }
 
-      await client.query('DELETE FROM public.user_projects WHERE project_id = $1', [projectId]);
+      if (isAdmin) {
+        await client.query('DELETE FROM public.user_projects WHERE project_id = $1', [projectId]);
 
-      const seen = new Set();
-      for (const p of participants) {
-        const key = `${p.id}:${p.role}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        await client.query(
-          `INSERT INTO public.user_projects (project_id, user_id, project_role) VALUES ($1, $2, $3)`,
-          [projectId, String(p.id), p.role]
+        const seen = new Set();
+        for (const p of participants) {
+          const key = `${p.id}:${p.role}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          await client.query(
+            `INSERT INTO public.user_projects (project_id, user_id, project_role) VALUES ($1, $2, $3)`,
+            [projectId, String(p.id), p.role]
+          );
+        }
+      } else {
+        // Estudiante Autor: Solo puede gestionar sus coautores (no modificar asesores/jurados ni quitarse como autor)
+        const currentAdvisorsAndJurors = await client.query(
+          `SELECT user_id, project_role FROM public.user_projects WHERE project_id = $1 AND project_role IN ('asesor', 'jurado')`,
+          [projectId]
         );
+
+        // Extraer coautores enviados
+        const requestedCoauthors = participants.filter(p => p.role === 'coautor' && String(p.id) !== String(actingUserId));
+        const candidateIds = requestedCoauthors.map(p => String(p.id));
+
+        if (candidateIds.length > 0) {
+          // Validar que los coautores no tengan ya otro proyecto activo
+          const candidateProjectsRes = await client.query(
+            `SELECT DISTINCT ON (up.user_id) up.user_id::text, p.title, p.project_id
+             FROM public.user_projects up
+             JOIN public.projects p ON p.project_id = up.project_id
+             LEFT JOIN public.statuses s ON s.status_id = p.status_id
+             WHERE up.user_id::text = ANY($1::text[])
+               AND up.project_id != $2
+               AND ${activeProjectPredicate()}
+             ORDER BY up.user_id, p.created_at DESC`,
+            [candidateIds, projectId]
+          );
+
+          if (candidateProjectsRes.rows.length > 0) {
+            const conflicting = candidateProjectsRes.rows[0];
+            const nameRes = await client.query('SELECT full_name FROM public.users WHERE user_id::text = $1', [conflicting.user_id]);
+            const memberName = nameRes.rows[0]?.full_name || 'El estudiante';
+            throw new HttpError(409, `${memberName} ya está vinculado al proyecto "${conflicting.title}" y no puede ser agregado como coautor.`);
+          }
+        }
+
+        await client.query('DELETE FROM public.user_projects WHERE project_id = $1', [projectId]);
+
+        // 1. Reinsertar al autor principal
+        await client.query(
+          `INSERT INTO public.user_projects (project_id, user_id, project_role) VALUES ($1, $2, 'autor')`,
+          [projectId, String(actingUserId)]
+        );
+
+        // 2. Reinsertar los coautores validados
+        const seenCoauthors = new Set([String(actingUserId)]);
+        for (const co of requestedCoauthors) {
+          if (seenCoauthors.has(String(co.id))) continue;
+          seenCoauthors.add(String(co.id));
+          await client.query(
+            `INSERT INTO public.user_projects (project_id, user_id, project_role) VALUES ($1, $2, 'coautor')`,
+            [projectId, String(co.id)]
+          );
+        }
+
+        // 3. Reinsertar los asesores y jurados que ya estaban asignados administrativamente
+        for (const staff of currentAdvisorsAndJurors.rows) {
+          await client.query(
+            `INSERT INTO public.user_projects (project_id, user_id, project_role) VALUES ($1, $2, $3)`,
+            [projectId, String(staff.user_id), staff.project_role]
+          );
+        }
       }
 
       const historyRes = await client.query(
