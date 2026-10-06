@@ -229,11 +229,7 @@ export default function CreateProjectModal({ statuses, modalities, lines, sublin
 
                 <div className="epm-grid2">
                   <div className="epm-field epm-span2">
-<<<<<<< HEAD
                     <label htmlFor="crear-proyecto-campo-1">Título del proyecto *</label>
-=======
-                    <label htmlFor="crear-proyecto-campo-1">Título *</label>
->>>>>>> 6c454da91d496ca4d0f82346ad689b4f8393c8ac
                     <input id="crear-proyecto-campo-1"
                       value={form.title}
                       onChange={e => setForm(p => ({ ...p, title: e.target.value }))}

@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 import { useEffect, useRef } from 'react';
-=======
-import { useEffect, useRef, useCallback } from 'react';
->>>>>>> 6c454da91d496ca4d0f82346ad689b4f8393c8ac
 import { X } from 'lucide-react';
 import './Modal.css';
 
@@ -41,7 +37,6 @@ export default function Modal({
   const panelRef = useRef(null);
   const tituloId = useRef(`modal-title-${Math.random().toString(36).slice(2, 9)}`).current;
 
-<<<<<<< HEAD
   // `onClose` casi siempre llega como una función nueva en cada render del padre
   // (`() => setOpen(false)`). Si el efecto de abajo dependiera de ella, se
   // ejecutaría de nuevo con cada tecla pulsada en un formulario: su limpieza
@@ -52,38 +47,10 @@ export default function Modal({
   useEffect(() => {
     onCloseRef.current = onClose;
   });
-=======
-  const alPulsarTecla = useCallback((evento) => {
-    if (evento.key === 'Escape') {
-      evento.stopPropagation();
-      onClose?.();
-      return;
-    }
-
-    if (evento.key !== 'Tab') return;
-
-    const enfocables = panelRef.current?.querySelectorAll(FOCUSABLES);
-    if (!enfocables || enfocables.length === 0) return;
-
-    const primero = enfocables[0];
-    const ultimo = enfocables[enfocables.length - 1];
-
-    // El ciclo se cierra sobre sí mismo: del último se vuelve al primero y al
-    // revés, en lugar de salir al documento de detrás.
-    if (evento.shiftKey && document.activeElement === primero) {
-      evento.preventDefault();
-      ultimo.focus();
-    } else if (!evento.shiftKey && document.activeElement === ultimo) {
-      evento.preventDefault();
-      primero.focus();
-    }
-  }, [onClose]);
->>>>>>> 6c454da91d496ca4d0f82346ad689b4f8393c8ac
 
   useEffect(() => {
     if (!open) return undefined;
 
-<<<<<<< HEAD
     const alPulsarTecla = (evento) => {
       if (evento.key === 'Escape') {
         evento.stopPropagation();
@@ -110,8 +77,6 @@ export default function Modal({
       }
     };
 
-=======
->>>>>>> 6c454da91d496ca4d0f82346ad689b4f8393c8ac
     const elementoPrevio = document.activeElement;
     const overflowPrevio = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -128,11 +93,7 @@ export default function Modal({
       document.body.style.overflow = overflowPrevio;
       elementoPrevio?.focus?.();
     };
-<<<<<<< HEAD
   }, [open]);
-=======
-  }, [open, alPulsarTecla]);
->>>>>>> 6c454da91d496ca4d0f82346ad689b4f8393c8ac
 
   if (!open) return null;
 
