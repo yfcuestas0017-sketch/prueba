@@ -766,9 +766,12 @@ export default function AdminGeneralPage() {
         <Button icon={UserCheck} onClick={handleOpenCreateAdminProgram}>
           Agregar Admin de Programa
         </Button>
+<<<<<<< HEAD
         <Button icon={UserMinus} onClick={handleOpenRevokeAdminProgram}>
           Quitar Admin de Programa
         </Button>
+=======
+>>>>>>> 6c454da91d496ca4d0f82346ad689b4f8393c8ac
         {/* Sigue siendo un <button> nativo y no un Button: es una pestaña, no
             una acción, y su estado activo no corresponde a ninguna variante. */}
         <button
@@ -998,6 +1001,7 @@ export default function AdminGeneralPage() {
           </FormField>
         )}
       </Modal>
+<<<<<<< HEAD
 
       {/* MODAL: REVOCAR ADMINISTRADOR DE PROGRAMA */}
       <Modal
@@ -1065,6 +1069,8 @@ export default function AdminGeneralPage() {
           </FormField>
         )}
       </Modal>
+=======
+>>>>>>> 6c454da91d496ca4d0f82346ad689b4f8393c8ac
 
       {/* MODAL ASIGNAR ROLES A USUARIO */}
       <Modal

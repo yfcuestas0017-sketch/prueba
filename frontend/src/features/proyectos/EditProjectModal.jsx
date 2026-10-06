@@ -52,7 +52,11 @@ export default function EditProjectModal({ project, statuses, modalities, lines,
   const [formError, setFormError] = useState('');
   const [formSuccess, setFormSuccess] = useState('');
 
+<<<<<<< HEAD
   // ── Equipo del proyecto ──────────────────────────────────
+=======
+  // ── Equipo del proyecto (solo admin) ──────────────────────────────────
+>>>>>>> 6c454da91d496ca4d0f82346ad689b4f8393c8ac
   const initialTeam = [
     ...(project.authorsList || []).map(p => ({ id: p.id, name: p.name, email: p.email, role: p.role || 'autor' })),
     ...(project.advisorsList || []).map(p => ({ id: p.id, name: p.name, email: p.email, role: 'asesor' })),
@@ -218,7 +222,11 @@ export default function EditProjectModal({ project, statuses, modalities, lines,
 
               <div className="epm-grid2">
                 <div className="epm-field epm-span2">
+<<<<<<< HEAD
                   <label htmlFor="edit-project-modal-campo-1">Título {canEditProject && '*'}</label>
+=======
+                  <label htmlFor="edit-project-modal-campo-1">Título *</label>
+>>>>>>> 6c454da91d496ca4d0f82346ad689b4f8393c8ac
                   <input id="edit-project-modal-campo-1"
                     value={form.title}
                     onChange={e => setForm(p => ({ ...p, title: e.target.value }))}
@@ -258,6 +266,7 @@ export default function EditProjectModal({ project, statuses, modalities, lines,
 
                 <div className="epm-field">
                   <label htmlFor="edit-project-modal-campo-2">Estado</label>
+<<<<<<< HEAD
                   {isAdmin ? (
                     <div className="epm-select-wrap">
                       <select id="edit-project-modal-campo-2" value={form.statusId} onChange={e => setForm(p => ({ ...p, statusId: e.target.value }))}>
@@ -300,6 +309,32 @@ export default function EditProjectModal({ project, statuses, modalities, lines,
                   <label htmlFor="edit-project-modal-campo-4">Opción de grado</label>
                   {isAdmin ? (
                     <div className="epm-select-wrap">
+=======
+                  <div className="epm-select-wrap">
+                    <select id="edit-project-modal-campo-2" value={form.statusId} onChange={e => setForm(p => ({ ...p, statusId: e.target.value }))}>
+                      <option value="">— Selecciona —</option>
+                      {statuses.map(s => <option key={s.status_id} value={s.status_id}>{s.name}</option>)}
+                    </select>
+                    <ChevronDown size={13} className="epm-chevron" />
+                  </div>
+                </div>
+
+                <div className="epm-field">
+                  <label htmlFor="edit-project-modal-campo-3">Modalidad</label>
+                  <div className="epm-select-wrap">
+                    <select id="edit-project-modal-campo-3" value={form.modalityId} onChange={e => setForm(p => ({ ...p, modalityId: e.target.value }))}>
+                      <option value="">— Selecciona —</option>
+                      {modalities.map(m => <option key={m.modality_id} value={m.modality_id}>{m.name}</option>)}
+                    </select>
+                    <ChevronDown size={13} className="epm-chevron" />
+                  </div>
+                </div>
+
+                <div className="epm-field">
+                  <label htmlFor="edit-project-modal-campo-4">Opción de grado</label>
+                  {isAdmin ? (
+                    <div className="epm-select-wrap">
+>>>>>>> 6c454da91d496ca4d0f82346ad689b4f8393c8ac
                       <select id="edit-project-modal-campo-4"
                         value={form.degreeOptionId || ''}
                         onChange={e => setForm(p => ({ ...p, degreeOptionId: e.target.value }))}
@@ -329,6 +364,7 @@ export default function EditProjectModal({ project, statuses, modalities, lines,
 
                 <div className="epm-field">
                   <label htmlFor="edit-project-modal-campo-5">Línea</label>
+<<<<<<< HEAD
                   {canEditProject ? (
                     <div className="epm-select-wrap">
                       <select id="edit-project-modal-campo-5" value={form.lineId} onChange={e => setForm(p => ({ ...p, lineId: e.target.value, sublineId: '' }))}>
@@ -345,10 +381,20 @@ export default function EditProjectModal({ project, statuses, modalities, lines,
                       disabled
                     />
                   )}
+=======
+                  <div className="epm-select-wrap">
+                    <select id="edit-project-modal-campo-5" value={form.lineId} onChange={e => setForm(p => ({ ...p, lineId: e.target.value, sublineId: '' }))}>
+                      <option value="">— Selecciona —</option>
+                      {filteredLines.map(l => <option key={l.research_line_id} value={l.research_line_id}>{l.name}</option>)}
+                    </select>
+                    <ChevronDown size={13} className="epm-chevron" />
+                  </div>
+>>>>>>> 6c454da91d496ca4d0f82346ad689b4f8393c8ac
                 </div>
 
                 <div className="epm-field">
                   <label htmlFor="edit-project-modal-campo-6">Sublínea</label>
+<<<<<<< HEAD
                   {canEditProject ? (
                     <div className="epm-select-wrap">
                       <select id="edit-project-modal-campo-6" value={form.sublineId} onChange={e => setForm(p => ({ ...p, sublineId: e.target.value }))} disabled={!form.lineId}>
@@ -365,6 +411,15 @@ export default function EditProjectModal({ project, statuses, modalities, lines,
                       disabled
                     />
                   )}
+=======
+                  <div className="epm-select-wrap">
+                    <select id="edit-project-modal-campo-6" value={form.sublineId} onChange={e => setForm(p => ({ ...p, sublineId: e.target.value }))} disabled={!form.lineId}>
+                      <option value="">— Selecciona —</option>
+                      {filteredSublines.map(s => <option key={s.research_subline_id} value={s.research_subline_id}>{s.name}</option>)}
+                    </select>
+                    <ChevronDown size={13} className="epm-chevron" />
+                  </div>
+>>>>>>> 6c454da91d496ca4d0f82346ad689b4f8393c8ac
                 </div>
 
                 <div className="epm-field epm-span2">
