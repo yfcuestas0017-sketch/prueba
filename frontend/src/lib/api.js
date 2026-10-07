@@ -42,15 +42,24 @@ async function request(endpoint, options = {}) {
 }
 
 export const api = {
-  // Auth
   login: (email, password) => request('/auth/login', {
     method: 'POST',
     body: JSON.stringify({ email, password }),
   }),
 
-  register: (fields) => request('/auth/register', {
+  forgotPassword: (email) => request('/auth/forgot-password', {
     method: 'POST',
-    body: JSON.stringify(fields),
+    body: JSON.stringify({ email }),
+  }),
+
+  validateResetToken: (token) => request('/auth/validate-reset-token', {
+    method: 'POST',
+    body: JSON.stringify({ token }),
+  }),
+
+  resetPassword: (token, newPassword) => request('/auth/reset-password', {
+    method: 'POST',
+    body: JSON.stringify({ token, newPassword }),
   }),
 
   // Catalogs

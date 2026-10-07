@@ -240,6 +240,7 @@ export const createProject = async (req, res) => {
     degreeOptionId, degree_option_id, creatorUserId, coauthors,
     generalObjective, general_objective, specificObjectives, specific_objectives
   } = req.body;
+  const finalCreatorUserId = creatorUserId || actorId(req);
   const finalDegreeOptionId = (degreeOptionId !== undefined ? degreeOptionId : degree_option_id) ? parseInt(degreeOptionId || degree_option_id, 10) : null;
   const finalGeneralObjective = (generalObjective !== undefined ? generalObjective : general_objective) ? String(generalObjective || general_objective).trim() : null;
   const finalSpecificObjectives = (specificObjectives !== undefined ? specificObjectives : specific_objectives) ? String(specificObjectives || specific_objectives).trim() : null;
@@ -248,7 +249,7 @@ export const createProject = async (req, res) => {
     return res.status(400).json({ error: 'El título del proyecto es obligatorio.' });
   }
 
-  if (!creatorUserId) {
+  if (!finalCreatorUserId) {
     return res.status(400).json({ error: 'El usuario creador es obligatorio.' });
   }
 
@@ -260,14 +261,14 @@ export const createProject = async (req, res) => {
        LEFT JOIN public.user_roles ur ON ur.user_id = u.user_id
        LEFT JOIN public.roles r ON r.role_id = ur.role_id
        WHERE u.user_id::text = $1 LIMIT 1`,
-      [String(creatorUserId)],
+      [String(finalCreatorUserId)],
     );
     if (creatorRes.rows.length === 0) {
       throw new HttpError(403, 'El usuario creador no está autorizado.');
     }
 
     if (isStudentProjectRole(creatorRes.rows[0].role_name)) {
-      const candidateIds = [String(creatorUserId), ...(Array.isArray(coauthors) ? coauthors.map((person) => String(person.id || '')).filter(Boolean) : [])];
+      const candidateIds = [String(finalCreatorUserId), ...(Array.isArray(coauthors) ? coauthors.map((person) => String(person.id || '')).filter(Boolean) : [])];
       const uniqueCandidateIds = [...new Set(candidateIds)].sort();
       for (const candidateId of uniqueCandidateIds) {
         await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`grado-project-user:${candidateId}`]);
@@ -284,8 +285,8 @@ export const createProject = async (req, res) => {
         [uniqueCandidateIds],
       );
       if (candidateProjectsRes.rows.length > 0) {
-        const creatorProject = candidateProjectsRes.rows.find((row) => row.user_id === String(creatorUserId));
-        const conflictingMember = candidateProjectsRes.rows.find((row) => row.user_id !== String(creatorUserId));
+        const creatorProject = candidateProjectsRes.rows.find((row) => row.user_id === String(finalCreatorUserId));
+        const conflictingMember = candidateProjectsRes.rows.find((row) => row.user_id !== String(finalCreatorUserId));
         if (creatorProject) {
           throw new HttpError(409, STUDENT_PROJECT_BLOCK_MESSAGE);
         }
@@ -298,7 +299,7 @@ export const createProject = async (req, res) => {
         `SELECT sem.semester_number
          FROM public.students st JOIN public.semesters sem ON sem.semester_id = st.semester_id
          WHERE st.user_id::text = $1 LIMIT 1`,
-        [String(creatorUserId)],
+        [String(finalCreatorUserId)],
       );
       if (semesterRes.rows.length === 0 || Number(semesterRes.rows[0].semester_number) !== 8) {
         throw new HttpError(403, 'Solo estudiantes de 8° semestre sin proyecto pueden registrar una propuesta de investigación.');
@@ -326,11 +327,11 @@ export const createProject = async (req, res) => {
 
     const proyecto = projRes.rows[0];
 
-    if (creatorUserId) {
+    if (finalCreatorUserId) {
       await client.query(
         `INSERT INTO public.user_projects (project_id, user_id, project_role)
          VALUES ($1, $2, 'autor')`,
-        [proyecto.project_id, String(creatorUserId)]
+        [proyecto.project_id, String(finalCreatorUserId)]
       );
     }
 

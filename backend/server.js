@@ -10,6 +10,8 @@ import apiRouter from './routes/index.js';
 import { setupProjectBankTable } from './migrations/create_project_bank.js';
 import { setupProjectBankHistoriesTable } from './migrations/create_project_bank_histories.js';
 import { setupProjectObjectivesColumns } from './migrations/add_project_objectives.js';
+import { setupPasswordResetsTable } from './migrations/create_password_resets.js';
+import { verifyEmailTransport } from './services/email.service.js';
 import { syncAssignedProjectBankIdeas } from './controllers/projectBank.controller.js';
 import { registerAdminDbCrudRoutes } from './admin_db_crud.js';
 import { pool } from './config/db.js';
@@ -162,6 +164,8 @@ async function initMigrations() {
   await setupProjectBankTable();
   await setupProjectBankHistoriesTable();
   await setupProjectObjectivesColumns();
+  await setupPasswordResetsTable();
+  await verifyEmailTransport();
   await registerAdminDbCrudRoutes(app, pool);
   await syncAssignedProjectBankIdeas(pool);
   await syncUserRoles(pool);

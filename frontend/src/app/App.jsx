@@ -30,6 +30,7 @@ const GestionDocente   = lazy(() => import('../features/gestion-docente/GestionD
 const BancoProyectos   = lazy(() => import('../features/banco-proyectos/BancoProyectos'));
 const ReportesPage     = lazy(() => import('../features/reportes/ReportesPage'));
 const AdminGeneralPage = lazy(() => import('../features/admin-general/AdminGeneralPage'));
+const ResetPassword    = lazy(() => import('../features/auth/ResetPassword'));
 
 /* role="status" con aria-live: quien usa lector de pantalla también se entera
    de que la pantalla está cargando, no solo quien la ve. */
@@ -53,6 +54,8 @@ export default function App() {
               <Suspense fallback={<CargandoRuta />}>
                 <Routes>
                   <Route path="/login" element={<Login />} />
+                  <Route path="/recuperar-password" element={<ResetPassword />} />
+                  <Route path="/reset-password" element={<ResetPassword />} />
                   <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
                   <Route path="/proyectos" element={<ProtectedRoute><ProyectosPage /></ProtectedRoute>} />
                   {/* requiredRole="admin" habilita tanto al Administrador General como

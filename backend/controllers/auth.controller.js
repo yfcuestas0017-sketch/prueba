@@ -1,8 +1,9 @@
-import { randomUUID } from 'crypto';
+import { randomUUID, randomBytes } from 'crypto';
 import pool from '../config/db.js';
 import { withTransaction } from '../db/withTransaction.js';
 import { HttpError, sendError } from '../utils/httpError.js';
 import { hashPassword, verifyPassword } from '../utils/password.js';
+import { sendPasswordResetEmail, isEmailConfigured } from '../services/email.service.js';
 import { signSessionToken, SESSION_EXPIRES_IN } from '../utils/token.js';
 
 /**
@@ -232,3 +233,182 @@ export const register = async (req, res) => {
     return sendError(res, err, 'Register error:', 'Error al registrar el usuario.');
   }
 };
+
+/**
+ * ─── RECUPERACIÓN DE CONTRASEÑA ──────────────────────────────────────────────
+ */
+
+export const forgotPassword = async (req, res) => {
+  const { email } = req.body || {};
+  if (!email || !String(email).trim()) {
+    return res.status(400).json({ error: 'Ingresa tu correo electrónico institucional.' });
+  }
+
+  const cleanEmail = String(email).trim().toLowerCase();
+  const genericResponse = {
+    message: 'Si el correo electrónico ingresado coincide con una cuenta activa, recibirás un enlace de recuperación en los próximos minutos.',
+  };
+
+  if (!isEmailConfigured()) {
+    return res.status(503).json({ error: 'El servicio de correo institucional no está configurado. Contacta a la administración del sistema.' });
+  }
+
+  try {
+    const userRes = await pool.query(
+      'SELECT user_id, full_name, email, is_active FROM public.users WHERE LOWER(TRIM(email)) = $1',
+      [cleanEmail]
+    );
+
+    if (userRes.rows.length === 0 || userRes.rows[0].is_active === false) {
+      // Respuesta genérica por seguridad para evitar enumeración de usuarios
+      return res.json(genericResponse);
+    }
+
+    const user = userRes.rows[0];
+    const resetToken = randomBytes(32).toString('hex');
+
+    // Invalidar tokens previos no utilizados del usuario
+    await pool.query(
+      'UPDATE public.password_resets SET used = true WHERE user_id = $1 AND used = false',
+      [user.user_id]
+    );
+
+    // Insertar nuevo token con expiración de 30 minutos
+    await pool.query(
+      `INSERT INTO public.password_resets (user_id, token, expires_at, used)
+       VALUES ($1, $2, NOW() + interval '30 minutes', false)`,
+      [user.user_id, resetToken]
+    );
+
+    const frontendBaseUrl = (process.env.FRONTEND_URL || 'http://localhost:5173')
+      .split(',')[0]
+      .trim();
+    const resetUrl = `${frontendBaseUrl}/recuperar-password?token=${resetToken}`;
+
+    try {
+      await sendPasswordResetEmail({
+        toEmail: user.email,
+        recipientName: user.full_name,
+        resetUrl,
+      });
+    } catch (mailErr) {
+      console.error('[EMAIL] No se pudo enviar el correo de recuperación:', mailErr.message);
+      // El token no sirve si el correo no salió: se invalida.
+      await pool.query('UPDATE public.password_resets SET used = true WHERE token = $1', [resetToken]);
+      return res.status(502).json({ error: 'No fue posible enviar el correo de recuperación en este momento. Intenta de nuevo más tarde o contacta a la administración.' });
+    }
+
+    return res.json(genericResponse);
+  } catch (err) {
+    return sendError(res, err, 'Forgot password error:', 'Error al procesar la solicitud de recuperación.');
+  }
+};
+
+export const validateResetToken = async (req, res) => {
+  const { token } = req.body || {};
+  if (!token || !String(token).trim()) {
+    return res.status(400).json({ error: 'Token de recuperación no proporcionado.' });
+  }
+
+  try {
+    const query = `
+      SELECT pr.reset_id, pr.user_id, pr.expires_at, pr.used,
+             u.full_name, u.email
+      FROM public.password_resets pr
+      JOIN public.users u ON u.user_id = pr.user_id
+      WHERE pr.token = $1
+      LIMIT 1
+    `;
+    const result = await pool.query(query, [String(token).trim()]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'El enlace de recuperación no es válido.' });
+    }
+
+    const record = result.rows[0];
+
+    if (record.used) {
+      return res.status(400).json({ error: 'Este enlace de recuperación ya ha sido utilizado.' });
+    }
+
+    if (new Date(record.expires_at) < new Date()) {
+      return res.status(400).json({ error: 'El enlace de recuperación ha expirado. Solicita uno nuevo.' });
+    }
+
+    return res.json({
+      valid: true,
+      email: record.email,
+      fullName: record.full_name,
+    });
+  } catch (err) {
+    return sendError(res, err, 'Validate token error:', 'Error al validar el enlace.');
+  }
+};
+
+export const resetPassword = async (req, res) => {
+  const { token, newPassword } = req.body || {};
+
+  if (!token || !newPassword) {
+    return res.status(400).json({ error: 'Token y nueva contraseña son obligatorios.' });
+  }
+
+  if (String(newPassword).length < 8) {
+    return res.status(400).json({ error: 'La nueva contraseña debe tener al menos 8 caracteres.' });
+  }
+
+  try {
+    await withTransaction(pool, async (client) => {
+      const tokenRes = await client.query(
+        `SELECT pr.reset_id, pr.user_id, pr.expires_at, pr.used, u.full_name, u.email
+         FROM public.password_resets pr
+         JOIN public.users u ON u.user_id = pr.user_id
+         WHERE pr.token = $1
+         FOR UPDATE`,
+        [String(token).trim()]
+      );
+
+      if (tokenRes.rows.length === 0) {
+        throw new HttpError(404, 'Enlace de recuperación inválido.');
+      }
+
+      const record = tokenRes.rows[0];
+
+      if (record.used) {
+        throw new HttpError(400, 'Este enlace de recuperación ya ha sido utilizado.');
+      }
+
+      if (new Date(record.expires_at) < new Date()) {
+        throw new HttpError(400, 'El enlace de recuperación ha expirado.');
+      }
+
+      const hashedPassword = await hashPassword(String(newPassword).trim());
+
+      // 1. Actualizar contraseña de usuario
+      await client.query(
+        'UPDATE public.users SET password = $1 WHERE user_id = $2',
+        [hashedPassword, record.user_id]
+      );
+
+      // 2. Marcar token como utilizado
+      await client.query(
+        'UPDATE public.password_resets SET used = true WHERE reset_id = $1',
+        [record.reset_id]
+      );
+
+      // 3. Registrar auditoría en historiales
+      await client.query(
+        `INSERT INTO public.histories (description, change_type, user_id)
+         VALUES ($1, 'PASSWORD_RESET', $2)`,
+        [`Restablecimiento de contraseña completado para ${record.email}`, record.user_id]
+      );
+    });
+
+    return res.json({
+      success: true,
+      message: 'Tu contraseña ha sido actualizada correctamente. Ya puedes iniciar sesión con tus nuevas credenciales.',
+    });
+  } catch (err) {
+    return sendError(res, err, 'Reset password error:', 'Error al restablecer la contraseña.');
+  }
+};
+
