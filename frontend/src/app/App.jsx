@@ -53,9 +53,12 @@ export default function App() {
             <ProgramFilterProvider>
               <Suspense fallback={<CargandoRuta />}>
                 <Routes>
+                  <Route path="/" element={<Navigate to="/login" replace />} />
                   <Route path="/login" element={<Login />} />
                   <Route path="/recuperar-password" element={<ResetPassword />} />
                   <Route path="/reset-password" element={<ResetPassword />} />
+                  <Route path="/recuperar-contrasena" element={<ResetPassword />} />
+                  <Route path="/restablecer-password" element={<ResetPassword />} />
                   <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
                   <Route path="/proyectos" element={<ProtectedRoute><ProyectosPage /></ProtectedRoute>} />
                   {/* requiredRole="admin" habilita tanto al Administrador General como
@@ -67,7 +70,7 @@ export default function App() {
                   <Route path="/facultades" element={<ProtectedRoute><BancoProyectos /></ProtectedRoute>} />
                   <Route path="/usuarios" element={<ProtectedRoute requiredRole="admin"><UsuariosPage /></ProtectedRoute>} />
                   <Route path="/ajustes" element={<ProtectedRoute><AjustesPage /></ProtectedRoute>} />
-                  <Route path="*" element={<Navigate to="/dashboard" replace />} />
+                  <Route path="*" element={<Navigate to="/login" replace />} />
                 </Routes>
               </Suspense>
             </ProgramFilterProvider>

@@ -19,7 +19,8 @@ const API_BASE = import.meta.env.VITE_API_URL || '/api';
  */
 async function request(endpoint, options = {}) {
   const url = `${API_BASE}${endpoint}`;
-  const token = getToken();
+  const isPublicAuth = endpoint.startsWith('/auth/');
+  const token = isPublicAuth ? null : getToken();
   const headers = {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -29,7 +30,7 @@ async function request(endpoint, options = {}) {
   const response = await fetch(url, { ...options, headers });
   const data = await response.json().catch(() => ({}));
 
-  if (response.status === 401 && token) {
+  if (response.status === 401 && token && !isPublicAuth) {
     notifySessionExpired();
     throw new Error(data.error || 'Tu sesión ha expirado. Vuelve a iniciar sesión.');
   }

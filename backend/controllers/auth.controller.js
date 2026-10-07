@@ -3,8 +3,8 @@ import pool from '../config/db.js';
 import { withTransaction } from '../db/withTransaction.js';
 import { HttpError, sendError } from '../utils/httpError.js';
 import { hashPassword, verifyPassword } from '../utils/password.js';
-import { sendPasswordResetEmail, isEmailConfigured } from '../services/email.service.js';
 import { signSessionToken, SESSION_EXPIRES_IN } from '../utils/token.js';
+import { sendPasswordResetEmail, isEmailConfigured } from '../services/email.service.js';
 
 /**
  * Mismo mensaje para "el correo no existe" y "la contraseña no coincide".
@@ -121,14 +121,7 @@ export const login = async (req, res) => {
       name: user.full_name,
       email: user.email,
       role: role,
-      // `role` es solo el rol PRINCIPAL resuelto más arriba. `roles` lleva la
-      // lista completa, y es lo que necesitan los ayudantes de
-      // `frontend/src/lib/roles.js`: un Administrador de Programa conserva
-      // Docente + Administrador, y si el principal resuelve a "docente" se le
-      // negaría el acceso que sí le corresponde.
       roles: roleNames,
-      // Del rol principal, no de result.rows[0]: con varios roles esa primera
-      // fila no tiene por qué ser la del rol que manda.
       roleId: primaryRoleRow?.role_id || inferredRoleId,
       permissions,
       programId: user.program_id,
@@ -280,9 +273,22 @@ export const forgotPassword = async (req, res) => {
       [user.user_id, resetToken]
     );
 
-    const frontendBaseUrl = (process.env.FRONTEND_URL || 'http://localhost:5173')
-      .split(',')[0]
-      .trim();
+    const requestOrigin = req.get('origin') || req.get('referer');
+    let frontendBaseUrl = (process.env.FRONTEND_URL || '').split(',')[0].trim();
+
+    if (requestOrigin) {
+      try {
+        const parsed = new URL(requestOrigin);
+        if (!frontendBaseUrl || (frontendBaseUrl.includes('localhost') && !parsed.hostname.includes('localhost'))) {
+          frontendBaseUrl = `${parsed.protocol}//${parsed.host}`;
+        }
+      } catch {}
+    }
+
+    if (!frontendBaseUrl) {
+      frontendBaseUrl = 'http://localhost:5173';
+    }
+
     const resetUrl = `${frontendBaseUrl}/recuperar-password?token=${resetToken}`;
 
     try {
@@ -411,4 +417,3 @@ export const resetPassword = async (req, res) => {
     return sendError(res, err, 'Reset password error:', 'Error al restablecer la contraseña.');
   }
 };
-
