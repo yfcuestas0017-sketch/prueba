@@ -253,13 +253,6 @@ export default function AjustesPage() {
               </div>
             </div>
           </div>
-          {!editing && (
-            <div className="profile-edit-btn">
-              <Button variant="primary" icon={Pencil} onClick={startEdit}>
-                Editar perfil
-              </Button>
-            </div>
-          )}
         </div>
 
         <div className="settings-body">
