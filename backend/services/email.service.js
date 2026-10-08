@@ -71,13 +71,54 @@ export async function sendPasswordResetEmail({ toEmail, recipientName, resetUrl 
   `;
 
   if (!isEmailConfigured()) {
-    throw new Error('SMTP no configurado (faltan SMTP_HOST, SMTP_USER o SMTP_PASS en .env.local).');
+    throw new Error('Correo no configurado (define BREVO_API_KEY, o SMTP_HOST, SMTP_USER y SMTP_PASS).');
   }
 
+  const subject = 'Recuperación de Contraseña — GradoHub UCESMAG';
+
+  // Opción A: API HTTPS de Brevo (puerto 443, no lo bloquean los hosts gratuitos).
+  if (process.env.BREVO_API_KEY) {
+    const senderEmail = process.env.BREVO_SENDER_EMAIL || SMTP_USER;
+    if (!senderEmail) {
+      throw new Error('Falta BREVO_SENDER_EMAIL (el remitente verificado en Brevo).');
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    try {
+      const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: {
+          'api-key': process.env.BREVO_API_KEY,
+          'content-type': 'application/json',
+          accept: 'application/json',
+        },
+        body: JSON.stringify({
+          sender: {
+            name: process.env.BREVO_SENDER_NAME || 'GradoHub - Universidad CESMAG',
+            email: senderEmail,
+          },
+          to: [{ email: toEmail, name: recipientName || toEmail }],
+          subject,
+          htmlContent,
+        }),
+        signal: controller.signal,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(`Brevo respondió ${res.status}: ${data.message || 'error desconocido'}`);
+      }
+      console.log(`[EMAIL] Correo de recuperación enviado a ${toEmail} vía Brevo (ID: ${data.messageId})`);
+      return { success: true, messageId: data.messageId };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  // Opción B: SMTP clásico.
   const info = await getTransporter().sendMail({
     from: fromAddress,
     to: toEmail,
-    subject: 'Recuperación de Contraseña — GradoHub UCESMAG',
+    subject,
     html: htmlContent,
   });
 
@@ -85,10 +126,10 @@ export async function sendPasswordResetEmail({ toEmail, recipientName, resetUrl 
   return { success: true, messageId: info.messageId };
 }
 
-/** true si están las tres variables mínimas para enviar correo real. */
+/** true si hay forma de enviar correo: API de Brevo (HTTPS) o las tres variables SMTP. */
 export function isEmailConfigured() {
-  const { SMTP_HOST, SMTP_USER, SMTP_PASS } = process.env;
-  return Boolean(SMTP_HOST && SMTP_USER && SMTP_PASS);
+  const { BREVO_API_KEY, SMTP_HOST, SMTP_USER, SMTP_PASS } = process.env;
+  return Boolean(BREVO_API_KEY || (SMTP_HOST && SMTP_USER && SMTP_PASS));
 }
 
 let transporter = null;
@@ -100,12 +141,20 @@ function getTransporter() {
     port: SMTP_PORT ? parseInt(SMTP_PORT, 10) : 587,
     secure: SMTP_SECURE === 'true' || SMTP_PORT === '465',
     auth: { user: SMTP_USER, pass: SMTP_PASS },
+    family: 4,                 // Render no tiene salida IPv6 (ENETUNREACH)
+    connectionTimeout: 10000,  // por defecto son 2 minutos
+    greetingTimeout: 10000,
+    socketTimeout: 15000,
   });
   return transporter;
 }
 
 /** Comprueba credenciales SMTP al arrancar el servidor y deja constancia en el log. */
 export async function verifyEmailTransport() {
+  if (process.env.BREVO_API_KEY) {
+    console.log('[EMAIL] Envío por API de Brevo (HTTPS) configurado.');
+    return true;
+  }
   if (!isEmailConfigured()) {
     console.warn('[EMAIL] SMTP no configurado: la recuperación de contraseña no podrá enviar correos.');
     return false;
