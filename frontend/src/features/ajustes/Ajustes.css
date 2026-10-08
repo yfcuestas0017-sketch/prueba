@@ -504,4 +504,82 @@
           padding: 28px 16px;
           text-align: center;
         }
+
+        /* ── SECCIÓN CAMBIO DE CONTRASEÑA ────────────────────────── */
+        .settings-card--password {
+          border-top: 3px solid var(--accent-primary);
+        }
+
+        .password-input-wrap {
+          position: relative;
+          display: flex;
+          align-items: center;
+          width: 100%;
+        }
+
+        .password-input-wrap .field-input {
+          width: 100%;
+          padding-right: 42px;
+        }
+
+        .password-toggle-btn {
+          position: absolute;
+          right: 10px;
+          background: transparent;
+          border: none;
+          padding: 6px;
+          cursor: pointer;
+          color: var(--text-muted);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 6px;
+          transition: color 0.15s ease, background-color 0.15s ease;
+        }
+
+        .password-toggle-btn:hover {
+          color: var(--text-primary);
+          background-color: var(--bg-hover);
+        }
+
+        .password-fields-row {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 16px;
+        }
+
+        @media (max-width: 640px) {
+          .password-fields-row {
+            grid-template-columns: 1fr;
+            gap: 12px;
+          }
+        }
+
+        .password-validation-hints {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin-top: 4px;
+        }
+
+        .password-hint-chip {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 0.74rem;
+          font-weight: 500;
+          padding: 4px 10px;
+          border-radius: 999px;
+          background: var(--bg-primary);
+          border: 1px solid var(--border-color);
+          color: var(--text-muted);
+          transition: all 0.2s ease;
+        }
+
+        .password-hint-chip--valid {
+          background: color-mix(in srgb, #10b981 12%, var(--bg-card));
+          border-color: color-mix(in srgb, #10b981 35%, transparent);
+          color: #10b981;
+        }
+
       

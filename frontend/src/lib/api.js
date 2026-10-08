@@ -8,7 +8,8 @@ import { getToken, notifySessionExpired } from './session.js';
  * en tiempo de compilación. Antes estaba fijo a '/api', por lo que el build de
  * producción solo funcionaba si ambos se servían desde el mismo dominio.
  */
-const API_BASE = import.meta.env.VITE_API_URL || '/api';
+const rawApiBase = (import.meta.env.VITE_API_URL || '/api').replace(/\/+$/, '');
+const API_BASE = rawApiBase.endsWith('/api') ? rawApiBase : `${rawApiBase}/api`;
 
 /**
  * Cliente HTTP único de la aplicación.
@@ -19,7 +20,7 @@ const API_BASE = import.meta.env.VITE_API_URL || '/api';
  */
 async function request(endpoint, options = {}) {
   const url = `${API_BASE}${endpoint}`;
-  const isPublicAuth = endpoint.startsWith('/auth/');
+  const isPublicAuth = endpoint.startsWith('/auth/') && endpoint !== '/auth/change-password';
   const token = isPublicAuth ? null : getToken();
   const headers = {
     'Content-Type': 'application/json',
@@ -61,6 +62,11 @@ export const api = {
   resetPassword: (token, newPassword) => request('/auth/reset-password', {
     method: 'POST',
     body: JSON.stringify({ token, newPassword }),
+  }),
+
+  changePassword: (currentPassword, newPassword) => request('/auth/change-password', {
+    method: 'POST',
+    body: JSON.stringify({ currentPassword, newPassword }),
   }),
 
   // Catalogs

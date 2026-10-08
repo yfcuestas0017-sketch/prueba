@@ -417,3 +417,78 @@ export const resetPassword = async (req, res) => {
     return sendError(res, err, 'Reset password error:', 'Error al restablecer la contraseña.');
   }
 };
+
+/**
+ * ─── CAMBIO VOLUNTARIO DE CONTRASEÑA (DESDE AJUSTES/CONFIGURACIONES) ──────────
+ */
+export const changePassword = async (req, res) => {
+  const userId = req.user?.id;
+  const { currentPassword, newPassword } = req.body || {};
+
+  if (!userId) {
+    return res.status(401).json({ error: 'Debes iniciar sesión para realizar esta acción.' });
+  }
+
+  if (!currentPassword || !String(currentPassword).trim()) {
+    return res.status(400).json({ error: 'Ingresa tu contraseña actual.' });
+  }
+
+  if (!newPassword || !String(newPassword).trim()) {
+    return res.status(400).json({ error: 'Ingresa la nueva contraseña.' });
+  }
+
+  const cleanCurrent = String(currentPassword).trim();
+  const cleanNew = String(newPassword).trim();
+
+  if (cleanNew.length < 8) {
+    return res.status(400).json({ error: 'La nueva contraseña debe tener al menos 8 caracteres.' });
+  }
+
+  if (cleanCurrent === cleanNew) {
+    return res.status(400).json({ error: 'La nueva contraseña no puede ser idéntica a la contraseña actual.' });
+  }
+
+  try {
+    const userRes = await pool.query(
+      'SELECT user_id, full_name, email, password FROM public.users WHERE user_id = $1',
+      [userId]
+    );
+
+    if (userRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Usuario no encontrado en la base de datos.' });
+    }
+
+    const user = userRes.rows[0];
+    const { valid } = await verifyPassword(cleanCurrent, user.password);
+
+    if (!valid) {
+      return res.status(400).json({ error: 'La contraseña actual ingresada es incorrecta.' });
+    }
+
+    const hashedPassword = await hashPassword(cleanNew);
+
+    await pool.query(
+      'UPDATE public.users SET password = $1 WHERE user_id = $2',
+      [hashedPassword, user.user_id]
+    );
+
+    // Auditoría opcional
+    try {
+      await pool.query(
+        `INSERT INTO public.histories (description, change_type, user_id)
+         VALUES ($1, 'PASSWORD_CHANGE', $2)`,
+        [`Cambio de contraseña voluntario desde ajustes para ${user.email}`, user.user_id]
+      );
+    } catch {
+      // Ignorar fallo de auditoría para no bloquear la actualización principal
+    }
+
+    return res.json({
+      success: true,
+      message: '¡Contraseña actualizada exitosamente en la base de datos!',
+    });
+  } catch (err) {
+    return sendError(res, err, 'Change password error:', 'Error al cambiar la contraseña en la base de datos.');
+  }
+};
+

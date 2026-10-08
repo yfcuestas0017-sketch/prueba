@@ -6,11 +6,15 @@ import {
   BookOpen,
   CheckCircle2,
   ChevronDown,
+  Eye,
+  EyeOff,
   GraduationCap,
+  KeyRound,
   Lock,
   Mail,
   Pencil,
   Save,
+  ShieldCheck,
   User,
   X,
 } from 'lucide-react';
@@ -72,8 +76,69 @@ export default function AjustesPage() {
   const [saveError, setSaveError] = useState('');
   const [saveSuccess, setSaveSuccess] = useState('');
 
+  // Estados para cambio de contraseña
+  const [passForm, setPassForm] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: '',
+  });
+  const [showCurrentPass, setShowCurrentPass] = useState(false);
+  const [showNewPass, setShowNewPass] = useState(false);
+  const [showConfirmPass, setShowConfirmPass] = useState(false);
+  const [passLoading, setPassLoading] = useState(false);
+  const [passError, setPassError] = useState('');
+  const [passSuccess, setPassSuccess] = useState('');
+
   const isStudent = (user?.role?.toLowerCase() || '') === 'estudiante';
   const currentUserId = String(user?.user_id || user?.id || '');
+
+  const handlePassChange = (key) => (e) => {
+    setPassForm((p) => ({ ...p, [key]: e.target.value }));
+    if (passError) setPassError('');
+    if (passSuccess) setPassSuccess('');
+  };
+
+  const handleUpdatePassword = async (e) => {
+    e.preventDefault();
+    setPassError('');
+    setPassSuccess('');
+
+    if (!passForm.currentPassword.trim()) {
+      setPassError('Debes ingresar tu contraseña actual.');
+      return;
+    }
+    if (!passForm.newPassword.trim()) {
+      setPassError('Debes ingresar la nueva contraseña.');
+      return;
+    }
+    if (passForm.newPassword.trim().length < 8) {
+      setPassError('La nueva contraseña debe tener como mínimo 8 caracteres.');
+      return;
+    }
+    if (passForm.newPassword.trim() !== passForm.confirmPassword.trim()) {
+      setPassError('La confirmación de la nueva contraseña no coincide.');
+      return;
+    }
+    if (passForm.newPassword.trim() === passForm.currentPassword.trim()) {
+      setPassError('La nueva contraseña no puede ser igual a tu contraseña actual.');
+      return;
+    }
+
+    setPassLoading(true);
+    try {
+      const res = await api.changePassword(passForm.currentPassword.trim(), passForm.newPassword.trim());
+      setPassSuccess(res.message || 'Contraseña actualizada correctamente en la base de datos.');
+      setPassForm({
+        currentPassword: '',
+        newPassword: '',
+        confirmPassword: '',
+      });
+    } catch (err) {
+      setPassError(err.message || 'Error al cambiar la contraseña.');
+    } finally {
+      setPassLoading(false);
+    }
+  };
 
   useEffect(() => {
     async function load() {
@@ -303,6 +368,138 @@ export default function AjustesPage() {
                 )}
               </div>
             )}
+
+            {/* SECCIÓN CAMBIAR CONTRASEÑA */}
+            <div className="settings-card settings-card--password">
+              <div className="card-header">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <KeyRound size={18} color="var(--accent-primary)" />
+                  <h3 className="card-title">Seguridad y Cambio de Contraseña</h3>
+                </div>
+                <span className="card-subtitle">
+                  Como se te asignó una contraseña institucional, puedes cambiarla aquí por una clave personal segura. Se actualizará automáticamente en la base de datos.
+                </span>
+              </div>
+
+              {passError && (
+                <div className="settings-alert settings-alert--error">
+                  <AlertCircle size={15} />
+                  <span>{passError}</span>
+                </div>
+              )}
+              {passSuccess && (
+                <div className="settings-alert settings-alert--success">
+                  <CheckCircle2 size={15} />
+                  <span>{passSuccess}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleUpdatePassword} className="edit-form password-form">
+                <div className="field">
+                  <label className="field-label" htmlFor="ajustes-pass-actual">
+                    Contraseña actual *
+                  </label>
+                  <div className="password-input-wrap">
+                    <input
+                      id="ajustes-pass-actual"
+                      type={showCurrentPass ? 'text' : 'password'}
+                      required
+                      className="field-input"
+                      value={passForm.currentPassword}
+                      onChange={handlePassChange('currentPassword')}
+                      placeholder="Ingresa tu contraseña actual"
+                      autoComplete="current-password"
+                    />
+                    <button
+                      type="button"
+                      className="password-toggle-btn"
+                      onClick={() => setShowCurrentPass((p) => !p)}
+                      aria-label={showCurrentPass ? 'Ocultar contraseña actual' : 'Mostrar contraseña actual'}
+                    >
+                      {showCurrentPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="password-fields-row">
+                  <div className="field">
+                    <label className="field-label" htmlFor="ajustes-pass-nueva">
+                      Nueva contraseña *
+                    </label>
+                    <div className="password-input-wrap">
+                      <input
+                        id="ajustes-pass-nueva"
+                        type={showNewPass ? 'text' : 'password'}
+                        required
+                        minLength={8}
+                        className="field-input"
+                        value={passForm.newPassword}
+                        onChange={handlePassChange('newPassword')}
+                        placeholder="Mínimo 8 caracteres"
+                        autoComplete="new-password"
+                      />
+                      <button
+                        type="button"
+                        className="password-toggle-btn"
+                        onClick={() => setShowNewPass((p) => !p)}
+                        aria-label={showNewPass ? 'Ocultar nueva contraseña' : 'Mostrar nueva contraseña'}
+                      >
+                        {showNewPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="field">
+                    <label className="field-label" htmlFor="ajustes-pass-confirm">
+                      Confirmar nueva contraseña *
+                    </label>
+                    <div className="password-input-wrap">
+                      <input
+                        id="ajustes-pass-confirm"
+                        type={showConfirmPass ? 'text' : 'password'}
+                        required
+                        minLength={8}
+                        className="field-input"
+                        value={passForm.confirmPassword}
+                        onChange={handlePassChange('confirmPassword')}
+                        placeholder="Repite la nueva contraseña"
+                        autoComplete="new-password"
+                      />
+                      <button
+                        type="button"
+                        className="password-toggle-btn"
+                        onClick={() => setShowConfirmPass((p) => !p)}
+                        aria-label={showConfirmPass ? 'Ocultar confirmación' : 'Mostrar confirmación'}
+                      >
+                        {showConfirmPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="password-validation-hints">
+                  <div className={`password-hint-chip ${passForm.newPassword.length >= 8 ? 'password-hint-chip--valid' : ''}`}>
+                    <CheckCircle2 size={13} />
+                    <span>Mínimo 8 caracteres ({passForm.newPassword.length}/8)</span>
+                  </div>
+                  <div className={`password-hint-chip ${passForm.newPassword && passForm.newPassword === passForm.confirmPassword ? 'password-hint-chip--valid' : ''}`}>
+                    <CheckCircle2 size={13} />
+                    <span>Coincidencia de contraseñas</span>
+                  </div>
+                </div>
+
+                <div className="edit-actions" style={{ marginTop: '12px' }}>
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    icon={KeyRound}
+                    loading={passLoading}
+                  >
+                    {passLoading ? 'Guardando en Base de Datos...' : 'Actualizar Contraseña'}
+                  </Button>
+                </div>
+              </form>
+            </div>
 
             {/* FORMULARIO DE EDICIÓN */}
             {editing && (
