@@ -1,11 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
+  ArrowDownToLine,
+  BadgeInfo,
   BookOpen,
   Briefcase,
+  Check,
+  FileSpreadsheet,
   Gavel,
   Mail,
   Search,
+  Upload,
   Users,
   X,
 } from 'lucide-react';
@@ -14,7 +19,25 @@ import Button from '../../components/ui/Button';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import { useProgramFilter } from '../../context/ProgramFilterContext';
+import { normalizeImportHeader, parseCsv, readFirstWorksheet } from '../../lib/xlsxImport';
 import './GestionDocente.css';
+
+const TEACHER_IMPORT_COLUMNS = ['full_name', 'email', 'program_name'];
+
+function downloadTeacherTemplate() {
+  const csv = `\uFEFF${TEACHER_IMPORT_COLUMNS.join(';')}\r\n`;
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'plantilla_importacion_docentes.csv';
+  link.hidden = true;
+  document.body.appendChild(link);
+  link.click();
+  window.setTimeout(() => {
+    link.remove();
+    URL.revokeObjectURL(url);
+  }, 0);
+}
 
 export default function GestionDocente() {
   const { user } = useAuth();
@@ -30,6 +53,13 @@ export default function GestionDocente() {
 
   const [detailDocente, setDetailDocente] = useState(null);
   const [activeFilter, setActiveFilter] = useState(null);
+  const fileInputRef = useRef(null);
+  const [showImport, setShowImport] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [previewRows, setPreviewRows] = useState([]);
+  const [fileName, setFileName] = useState('');
+  const [importError, setImportError] = useState('');
+  const [importMessage, setImportMessage] = useState('');
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -142,6 +172,65 @@ export default function GestionDocente() {
     setActiveFilter(null);
   };
 
+  const handleTeacherFileChange = async (event) => {
+    const file = event.target.files?.[0];
+    setImportError('');
+    setImportMessage('');
+    setPreviewRows([]);
+    setFileName('');
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      setImportError('El archivo supera el límite de 10 MB.');
+      event.target.value = '';
+      return;
+    }
+    if (!/\.(xlsx|csv)$/i.test(file.name)) {
+      setImportError('Selecciona un archivo Excel .xlsx o CSV.');
+      event.target.value = '';
+      return;
+    }
+    try {
+      const rows = /\.csv$/i.test(file.name)
+        ? parseCsv(await file.text())
+        : await readFirstWorksheet(await file.arrayBuffer());
+      const [headerRow, ...dataRows] = rows;
+      const headers = (headerRow || []).map(normalizeImportHeader);
+      const missing = TEACHER_IMPORT_COLUMNS.filter((column) => !headers.includes(column));
+      if (missing.length) {
+        throw new Error(`Faltan estas columnas obligatorias: ${missing.join(', ')}.`);
+      }
+      const parsedRows = dataRows.map((row) => Object.fromEntries(
+        TEACHER_IMPORT_COLUMNS.map((column) => [column, row[headers.indexOf(column)] ?? '']),
+      )).filter((row) => Object.values(row).some((value) => String(value).trim()));
+      if (!parsedRows.length) throw new Error('El archivo no contiene docentes para importar.');
+      if (parsedRows.length > 2000) throw new Error('La importación permite un máximo de 2000 docentes por archivo.');
+      setPreviewRows(parsedRows);
+      setFileName(file.name);
+    } catch (err) {
+      setImportError(err.message || 'No fue posible leer el archivo.');
+      event.target.value = '';
+    }
+  };
+
+  const importTeachers = async () => {
+    if (!previewRows.length) return;
+    setImporting(true);
+    setImportError('');
+    setImportMessage('');
+    try {
+      const result = await api.importAdminTeachers(previewRows);
+      setImportMessage(`Importación completada: ${result.created} cuentas nuevas y ${result.updated} docentes actualizados.`);
+      setPreviewRows([]);
+      setFileName('');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      await loadData();
+    } catch (err) {
+      setImportError(err.message || 'No fue posible importar los docentes.');
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const asesorCount = detailDocente ? detailDocente.assignments.filter((a) => a.role === 'asesor').length : 0;
   const juradoCount = detailDocente ? detailDocente.assignments.filter((a) => a.role === 'jurado').length : 0;
 
@@ -167,9 +256,85 @@ export default function GestionDocente() {
                   className="gd-search-input"
                 />
               </div>
-
-              {/* Selector de Programa Académico */}
+              <Button
+                variant={showImport ? 'secondary' : 'primary'}
+                icon={Upload}
+                onClick={() => {
+                  setShowImport((visible) => !visible);
+                  setImportError('');
+                }}
+              >
+                {showImport ? 'Cerrar importación' : 'Importar docentes'}
+              </Button>
             </div>
+
+            {showImport && (
+              <section className="gd-import-panel" aria-labelledby="gd-import-title">
+                <div className="gd-import-intro">
+                  <div className="gd-import-icon"><Upload size={18} /></div>
+                  <div>
+                    <span className="gd-import-kicker">Carga por programa</span>
+                    <h2 id="gd-import-title">Importar docentes</h2>
+                    <p>Las cuentas nuevas se crean activas con clave temporal <code>12345678</code>. Si el correo ya pertenece a un docente, se actualizan su nombre y programa sin cambiar su contraseña.</p>
+                  </div>
+                </div>
+                <div className="gd-import-controls">
+                  <Button variant="outline" icon={ArrowDownToLine} onClick={downloadTeacherTemplate}>
+                    Descargar plantilla CSV
+                  </Button>
+                  <input
+                    ref={fileInputRef}
+                    className="gd-file-input"
+                    type="file"
+                    accept=".xlsx,.csv"
+                    onChange={handleTeacherFileChange}
+                    aria-label="Seleccionar archivo de docentes"
+                  />
+                  <Button variant="primary" icon={FileSpreadsheet} onClick={() => fileInputRef.current?.click()}>
+                    Elegir archivo
+                  </Button>
+                </div>
+                <div className="gd-import-schema">
+                  <div className="gd-import-schema-heading"><BadgeInfo size={16} /><strong>Formato requerido</strong><span>3 columnas</span></div>
+                  <div className="gd-import-schema-columns">
+                    {[
+                      { key: 'full_name', description: 'Nombres y apellidos' },
+                      { key: 'email', description: 'Correo institucional' },
+                      { key: 'program_name', description: 'Nombre del programa' },
+                    ].map((column) => (
+                      <div className="gd-import-schema-column" key={column.key}>
+                        <code>{column.key}</code>
+                        <small>{column.description}</small>
+                        <Check size={14} aria-hidden="true" />
+                      </div>
+                    ))}
+                  </div>
+                  <small className="gd-import-note">Todas las filas deben pertenecer al mismo programa. Solo se aceptan archivos con hasta 2000 registros.</small>
+                </div>
+                {importError && <div className="gd-import-alert gd-import-alert--error" role="alert">{importError}</div>}
+                {importMessage && <div className="gd-import-alert gd-import-alert--success" role="status">{importMessage}</div>}
+                {fileName && (
+                  <div className="gd-import-preview">
+                    <div className="gd-import-preview-heading">
+                      <div><strong>{fileName}</strong><span>{previewRows.length} docentes listos para validar e importar</span></div>
+                      <Button variant="primary" loading={importing} disabled={importing} onClick={importTeachers}>
+                        Importar {previewRows.length}
+                      </Button>
+                    </div>
+                    <div className="gd-import-preview-list">
+                      {previewRows.slice(0, 4).map((row, index) => (
+                        <div key={`${row.email}-${index}`}>
+                          <span>{row.full_name || 'Nombre pendiente'}</span>
+                          <small>{row.email || 'Correo pendiente'}</small>
+                          <small>{row.program_name || 'Programa pendiente'}</small>
+                        </div>
+                      ))}
+                      {previewRows.length > 4 && <span className="gd-import-preview-more">y {previewRows.length - 4} docentes más…</span>}
+                    </div>
+                  </div>
+                )}
+              </section>
+            )}
 
             <div className="gd-meta">
               <div className="gd-meta-card">

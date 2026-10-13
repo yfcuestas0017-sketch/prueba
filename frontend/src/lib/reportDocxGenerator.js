@@ -331,11 +331,14 @@ export async function generateConsolidatedDocx(projects = [], activeFilters = {}
     throw new Error('No hay proyectos para incluir en el reporte consolidado.');
   }
 
+  const isDocente = adminUser?.role === 'docente';
   const programName = activeFilters.programName || (adminUser?.programName) || 'Institucional';
   const now = new Date();
   const dateStr = now.toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric' });
   const timeStr = now.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
-  const generatedBy = adminUser?.name ? `Generado por: ${adminUser.name}` : 'Generado por: Administrador';
+  const generatedBy = adminUser?.name ? `Generado por: ${adminUser.name}${adminUser?.role ? ` (${adminUser.role.toUpperCase()})` : ''}` : 'Generado por: Administrador';
+  const reportHeading = isDocente ? 'REPORTE DE PROYECTOS ASIGNADOS' : 'REPORTE CONSOLIDADO DE PROYECTOS DE GRADO';
+  const totalCountLabel = isDocente ? `Cantidad de Proyectos Asignados: ${projects.length}` : `Total Proyectos: ${projects.length}`;
 
   // Tabla consolidada de proyectos
   const tableRows = [
@@ -428,7 +431,7 @@ export async function generateConsolidatedDocx(projects = [], activeFilters = {}
             spacing: { after: 80 },
             children: [
               new TextRun({
-                text: 'REPORTE CONSOLIDADO DE PROYECTOS DE GRADO',
+                text: reportHeading,
                 bold: true,
                 size: 32,
                 color: COLOR_PRIMARY,
@@ -440,13 +443,36 @@ export async function generateConsolidatedDocx(projects = [], activeFilters = {}
             spacing: { after: 180 },
             children: [
               new TextRun({
-                text: `Programa: ${programName}  |  Total Proyectos: ${projects.length}  |  Emisión: ${dateStr} ${timeStr}  |  ${generatedBy}`,
+                text: `Programa: ${programName}  |  ${totalCountLabel}  |  Emisión: ${dateStr} ${timeStr}  |  ${generatedBy}`,
                 size: 18,
                 color: COLOR_MUTED,
                 font: 'Calibri',
               }),
             ],
           }),
+
+          ...(activeFilters && Object.values(activeFilters).some(Boolean) ? [
+            new Paragraph({
+              spacing: { after: 140 },
+              children: [
+                new TextRun({
+                  text: 'Filtros aplicados: ' + [
+                    activeFilters.statusName && `Estado: ${activeFilters.statusName}`,
+                    activeFilters.modalityName && `Modalidad: ${activeFilters.modalityName}`,
+                    activeFilters.lineName && `Línea: ${activeFilters.lineName}`,
+                    activeFilters.semesterName && `Semestre: ${activeFilters.semesterName}`,
+                    activeFilters.periodName && `Periodo: ${activeFilters.periodName}`,
+                    activeFilters.yearName && `Año: ${activeFilters.yearName}`,
+                    activeFilters.advisorName && `Docente: ${activeFilters.advisorName}`,
+                  ].filter(Boolean).join('  •  '),
+                  italics: true,
+                  size: 18,
+                  color: COLOR_MUTED,
+                  font: 'Calibri',
+                }),
+              ],
+            }),
+          ] : []),
 
           createSectionHeading('Listado Consolidado de Proyectos', COLOR_PRIMARY),
           consolidatedTable,
@@ -457,5 +483,6 @@ export async function generateConsolidatedDocx(projects = [], activeFilters = {}
 
   const blob = await Packer.toBlob(doc);
   const dateSuffix = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-  saveAs(blob, `Reporte_Todos_Proyectos_${dateSuffix}.docx`);
+  const filePrefix = isDocente ? 'Reporte_Proyectos_Asignados' : 'Reporte_Todos_Proyectos';
+  saveAs(blob, `${filePrefix}_${dateSuffix}.docx`);
 }

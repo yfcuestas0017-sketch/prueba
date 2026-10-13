@@ -30,7 +30,10 @@ function Avatar({ name, size = 30 }) {
 export default function EditProjectModal({ project, statuses, modalities, lines, sublines, degreeOptions = [], user, onClose, onSaved, onOpenHistory }) {
   const roleLower = String(user?.role || '').toLowerCase();
   const isAdmin = roleLower === 'administrador' || roleLower === 'administrador general' || roleLower.includes('admin');
+  const isTeacher = roleLower.includes('docente');
   const isAdvisor = (project.advisorsList || []).some(a => String(a.id) === String(user?.id)) || project.myRole === 'asesor';
+  const isJuror = (project.jurorsList || []).some(j => String(j.id) === String(user?.id)) || project.myRole === 'jurado';
+  const canEvaluate = isAdmin || isTeacher || isAdvisor || isJuror;
   const isApprovedOrFinished = ['finalizado', 'terminado', 'completado', 'aprobado', 'sustentado'].some(w => String(project.statusName || project.status || '').toLowerCase().includes(w));
   const canEditProject = (isAdmin || isAdvisor) && (!isApprovedOrFinished || isAdmin);
   const isOwnerAuthor = (project.isOwned || project.myRole === 'autor') && !isAdmin && !isAdvisor;
@@ -42,6 +45,8 @@ export default function EditProjectModal({ project, statuses, modalities, lines,
     generalObjective: project.generalObjective || project.general_objective || '',
     specificObjectives: project.specificObjectives || project.specific_objectives || '',
     statusId: project.statusId || '',
+    score: project.latestScore !== null && project.latestScore !== undefined ? String(project.latestScore) : '',
+    observations: '',
     modalityId: project.modalityId || '',
     lineId: project.lineId || '',
     sublineId: project.sublineId || '',
@@ -82,12 +87,9 @@ export default function EditProjectModal({ project, statuses, modalities, lines,
       if (isPsicologia) {
         return [5, 6, 7].includes(line.research_line_id) || name.includes('psicolog');
       }
-      if (isSistemas) {
-        return [1, 2, 3, 4].includes(line.research_line_id) || (!name.includes('psicolog') && !name.includes('salud') && !name.includes('comunitaria'));
-      }
       return true;
     });
-  }, [lines, targetProgramId, isPsicologia, isSistemas]);
+  }, [lines, targetProgramId, isPsicologia]);
 
   const filteredSublines = useMemo(() => {
     if (!form.lineId) return [];
@@ -159,6 +161,24 @@ export default function EditProjectModal({ project, statuses, modalities, lines,
         };
 
         await api.updateProject(project.id, payload, user?.id);
+      }
+
+      if (canEvaluate && (form.statusId !== project.statusId || form.score !== '' || form.observations.trim() !== '')) {
+        let numericScore = null;
+        if (form.score !== '' && form.score !== null) {
+          numericScore = parseFloat(form.score);
+          if (isNaN(numericScore) || numericScore < 0.0 || numericScore > 5.0) {
+            setFormError('La calificación debe estar entre 0.0 y 5.0.');
+            setSaving(false);
+            return;
+          }
+        }
+
+        await api.reviewProject(project.id, {
+          statusId: form.statusId ? Number(form.statusId) : project.statusId,
+          score: numericScore,
+          observations: form.observations.trim() || null,
+        });
       }
 
       if (isAdmin || isAdvisor || isOwnerAuthor) {
@@ -258,7 +278,7 @@ export default function EditProjectModal({ project, statuses, modalities, lines,
 
                 <div className="epm-field">
                   <label htmlFor="edit-project-modal-campo-2">Estado</label>
-                  {isAdmin ? (
+                  {canEvaluate ? (
                     <div className="epm-select-wrap">
                       <select id="edit-project-modal-campo-2" value={form.statusId} onChange={e => setForm(p => ({ ...p, statusId: e.target.value }))}>
                         <option value="">— Selecciona —</option>
@@ -275,6 +295,37 @@ export default function EditProjectModal({ project, statuses, modalities, lines,
                     />
                   )}
                 </div>
+
+                <div className="epm-field">
+                  <label htmlFor="edit-project-modal-score">Calificación (0 - 5.0)</label>
+                  <input
+                    id="edit-project-modal-score"
+                    type="number"
+                    step="0.1"
+                    min="0.0"
+                    max="5.0"
+                    placeholder={canEvaluate ? "Ej. 4.5" : "Sin calificar"}
+                    value={form.score}
+                    onChange={e => setForm(p => ({ ...p, score: e.target.value }))}
+                    disabled={!canEvaluate}
+                    readOnly={!canEvaluate}
+                    style={{ fontWeight: 600 }}
+                  />
+                </div>
+
+                {canEvaluate && (
+                  <div className="epm-field epm-span2">
+                    <label htmlFor="edit-project-modal-observations">Observaciones / Retroalimentación docente</label>
+                    <textarea
+                      id="edit-project-modal-observations"
+                      rows={3}
+                      value={form.observations}
+                      onChange={e => setForm(p => ({ ...p, observations: e.target.value }))}
+                      placeholder="Escribe observaciones o retroalimentación sobre la revisión del proyecto..."
+                      style={{ width: '100%', resize: 'vertical', borderRadius: 8, padding: '8px 12px', border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '0.86rem' }}
+                    />
+                  </div>
+                )}
 
                 <div className="epm-field">
                   <label htmlFor="edit-project-modal-campo-3">Modalidad</label>
@@ -482,13 +533,13 @@ export default function EditProjectModal({ project, statuses, modalities, lines,
 
               <div className="epm-form-actions">
                 <button type="button" className="epm-btn-ghost" onClick={onClose}>
-                  {canEditProject || (isOwnerAuthor && !isApprovedOrFinished) ? 'Cancelar' : 'Cerrar'}
+                  {canEditProject || canEvaluate || (isOwnerAuthor && !isApprovedOrFinished) ? 'Cancelar' : 'Cerrar'}
                 </button>
-                {(canEditProject || (isOwnerAuthor && !isApprovedOrFinished)) && (
+                {(canEditProject || canEvaluate || (isOwnerAuthor && !isApprovedOrFinished)) && (
                   <button type="submit" className="epm-btn-primary" disabled={saving}>
                     {saving
                       ? <><Loader2 size={14} className="epm-spin" /> Guardando...</>
-                      : <><Save size={14} /> {canEditProject ? 'Guardar cambios' : 'Guardar equipo'}</>
+                      : <><Save size={14} /> {canEditProject ? 'Guardar cambios' : canEvaluate ? 'Guardar revisión' : 'Guardar equipo'}</>
                     }
                   </button>
                 )}

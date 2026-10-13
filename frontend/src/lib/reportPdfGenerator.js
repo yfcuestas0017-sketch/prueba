@@ -233,11 +233,14 @@ export function generateConsolidatedPdf(projects = [], activeFilters = {}, admin
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
   const pageWidth = doc.internal.pageSize.getWidth();
   const programName = activeFilters.programName || adminUser?.programName || null;
+  const isDocente = adminUser?.role === 'docente';
+  const title = isDocente ? 'REPORTE DE PROYECTOS ASIGNADOS' : 'REPORTE CONSOLIDADO DE PROYECTOS DE GRADO';
+  const subtitle = isDocente ? `Cantidad de proyectos asignados: ${projects.length}` : `Total: ${projects.length} proyecto${projects.length !== 1 ? 's' : ''}`;
 
   drawHeader(
     doc,
-    'REPORTE CONSOLIDADO DE PROYECTOS DE GRADO',
-    `Total: ${projects.length} proyecto${projects.length !== 1 ? 's' : ''}`,
+    title,
+    subtitle,
     adminUser,
     programName
   );
@@ -250,6 +253,8 @@ export function generateConsolidatedPdf(projects = [], activeFilters = {}, admin
     activeFilters.modalityName && `Modalidad: ${activeFilters.modalityName}`,
     activeFilters.lineName && `Línea: ${activeFilters.lineName}`,
     activeFilters.semesterName && `Semestre: ${activeFilters.semesterName}`,
+    activeFilters.periodName && `Periodo: ${activeFilters.periodName}`,
+    activeFilters.yearName && `Año: ${activeFilters.yearName}`,
     activeFilters.advisorName && `Asesor: ${activeFilters.advisorName}`,
     (activeFilters.startDate || activeFilters.endDate) && `Fechas: ${activeFilters.startDate || 'Inicio'} — ${activeFilters.endDate || 'Hoy'}`,
   ].filter(Boolean);
@@ -314,5 +319,6 @@ export function generateConsolidatedPdf(projects = [], activeFilters = {}, admin
   drawFooter(doc);
 
   const dateSuffix = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-  doc.save(`Reporte_Todos_Proyectos_${dateSuffix}.pdf`);
+  const filePrefix = isDocente ? 'Reporte_Proyectos_Asignados' : 'Reporte_Todos_Proyectos';
+  doc.save(`${filePrefix}_${dateSuffix}.pdf`);
 }

@@ -1,6 +1,6 @@
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { userIsGeneralAdmin, userIsAnyAdmin, normalizeRoleName } from '../lib/roles';
+import { userIsGeneralAdmin, userIsAnyAdmin, userIsDocente, normalizeRoleName } from '../lib/roles';
 
 export default function ProtectedRoute({ children, requiredRole, excludedRole }) {
   const { user, loading } = useAuth();
@@ -49,16 +49,20 @@ export default function ProtectedRoute({ children, requiredRole, excludedRole })
     return children;
   }
 
-  const normalizedRequiredRole = requiredRole?.toLowerCase();
   const userRoleNames = [user.role, ...(Array.isArray(user.roles) ? user.roles : [])]
     .map(normalizeRoleName)
     .filter(Boolean);
 
-  const roleMatches = !normalizedRequiredRole
-    ? true
-    : normalizedRequiredRole === 'admin'
-      ? userIsAnyAdmin(user)
-      : userRoleNames.includes(normalizedRequiredRole);
+  let roleMatches = true;
+  if (requiredRole) {
+    const rolesToCheck = Array.isArray(requiredRole) ? requiredRole : [requiredRole];
+    roleMatches = rolesToCheck.some((r) => {
+      const norm = r.toLowerCase();
+      if (norm === 'admin') return userIsAnyAdmin(user);
+      if (norm === 'docente') return userIsDocente(user);
+      return userRoleNames.includes(norm);
+    });
+  }
 
   if (requiredRole && !roleMatches) {
     return <Navigate to="/dashboard" replace />;

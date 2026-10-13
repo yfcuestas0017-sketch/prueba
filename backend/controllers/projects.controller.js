@@ -5,12 +5,12 @@ import { withTransaction } from '../db/withTransaction.js';
 import { HttpError, sendError } from '../utils/httpError.js';
 import { findProjectsWithParticipants } from '../repositories/projects.repository.js';
 import { buildProjectBase } from '../services/projects.mapper.js';
+import {
+  getInitialProjectLifecycle,
+  getProjectReviewTransition,
+} from '../services/project-lifecycle.js';
 
 const STUDENT_PROJECT_BLOCK_MESSAGE = 'Este estudiante ya está vinculado a un proyecto de investigación activo y no puede registrar un nuevo proyecto.';
-
-function isStudentProjectRole(roleName) {
-  return String(roleName || '').toLowerCase().includes('estudiant');
-}
 
 function activeProjectPredicate(projectAlias = 'p', statusAlias = 's') {
   return `NOT (LOWER(COALESCE(${statusAlias}.name, '')) IN ('finalizado', 'terminado', 'cancelado'))`;
@@ -256,10 +256,14 @@ export const createProject = async (req, res) => {
   try {
     const newProj = await withTransaction(pool, async (client) => {
     const creatorRes = await client.query(
-      `SELECT u.user_id, COALESCE(r.name, '') AS role_name
+      `SELECT u.user_id,
+              EXISTS (
+                SELECT 1
+                FROM public.user_roles ur
+                JOIN public.roles r ON r.role_id = ur.role_id
+                WHERE ur.user_id = u.user_id AND LOWER(r.name) LIKE '%estudiant%'
+              ) AS is_student
        FROM public.users u
-       LEFT JOIN public.user_roles ur ON ur.user_id = u.user_id
-       LEFT JOIN public.roles r ON r.role_id = ur.role_id
        WHERE u.user_id::text = $1 LIMIT 1`,
       [String(finalCreatorUserId)],
     );
@@ -267,7 +271,8 @@ export const createProject = async (req, res) => {
       throw new HttpError(403, 'El usuario creador no está autorizado.');
     }
 
-    if (isStudentProjectRole(creatorRes.rows[0].role_name)) {
+    const isStudentProposal = creatorRes.rows[0].is_student;
+    if (isStudentProposal) {
       const candidateIds = [String(finalCreatorUserId), ...(Array.isArray(coauthors) ? coauthors.map((person) => String(person.id || '')).filter(Boolean) : [])];
       const uniqueCandidateIds = [...new Set(candidateIds)].sort();
       for (const candidateId of uniqueCandidateIds) {
@@ -306,16 +311,29 @@ export const createProject = async (req, res) => {
       }
     }
 
+    const initialLifecycle = getInitialProjectLifecycle(isStudentProposal);
+    let initialStatusId = statusId ? parseInt(statusId, 10) : null;
+    if (initialLifecycle.statusName) {
+      const reviewStatus = await client.query(
+        `SELECT status_id FROM public.statuses WHERE LOWER(name) = LOWER($1) ORDER BY status_id LIMIT 1`,
+        [initialLifecycle.statusName],
+      );
+      if (!reviewStatus.rows[0]) {
+        throw new HttpError(409, 'No está configurado el estado En revisión para registrar propuestas.');
+      }
+      initialStatusId = reviewStatus.rows[0].status_id;
+    }
+
     const insertProjectQuery = `
       INSERT INTO public.projects 
-        (title, code, status_id, modality_id, research_line_id, research_subline_id, letter_link, degree_option_id, general_objective, specific_objectives)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      RETURNING project_id, title, code, created_at, status_id, modality_id, research_line_id, research_subline_id, letter_link, degree_option_id, general_objective, specific_objectives;
+        (title, code, status_id, modality_id, research_line_id, research_subline_id, letter_link, degree_option_id, general_objective, specific_objectives, process_stage, process_phase)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      RETURNING project_id, title, code, created_at, status_id, modality_id, research_line_id, research_subline_id, letter_link, degree_option_id, general_objective, specific_objectives, process_stage, process_phase;
     `;
     const projRes = await client.query(insertProjectQuery, [
       title.trim(),
       code ? code.trim() : null,
-      statusId ? parseInt(statusId, 10) : null,
+      initialStatusId,
       modalityId ? parseInt(modalityId, 10) : null,
       lineId ? parseInt(lineId, 10) : null,
       sublineId ? parseInt(sublineId, 10) : null,
@@ -323,6 +341,8 @@ export const createProject = async (req, res) => {
       finalDegreeOptionId,
       finalGeneralObjective,
       finalSpecificObjectives,
+      initialLifecycle.stage,
+      initialLifecycle.phase,
     ]);
 
     const proyecto = projRes.rows[0];
@@ -350,7 +370,7 @@ export const createProject = async (req, res) => {
     const historyRes = await client.query(
       `INSERT INTO public.histories (description, change_type, user_id)
        VALUES ($1, 'CREATE', $2) RETURNING history_id`,
-      ['Creación inicial del proyecto', creatorUserId ? String(creatorUserId) : null]
+      [isStudentProposal ? 'Propuesta de investigación registrada para evaluación.' : 'Creación inicial del proyecto', creatorUserId ? String(creatorUserId) : null]
     );
     const historyId = historyRes.rows[0].history_id;
 
@@ -722,14 +742,17 @@ export const getProjectHistory = async (req, res) => {
     `;
     const params = [projectId];
 
-    if (userCtx && (userCtx.role_name === 'estudiante' || userCtx.role_name === 'docente')) {
+    if (userCtx && userCtx.role_name === 'estudiante') {
       params.push(String(requestingUserId));
       query += `
         AND (
           h.user_id::text = $${params.length}
-          OR LOWER(COALESCE(r.name, '')) IN ('administrador', 'admin')
+          OR LOWER(COALESCE(r.name, '')) IN ('administrador', 'admin', 'docente')
           OR u.user_id ILIKE 'admin%'
+          OR u.user_id ILIKE 'doc%'
           OR u.email ILIKE '%admin%'
+          OR u.email ILIKE '%docente%'
+          OR h.change_type IN ('REVISION', 'AVANCE', 'DOCUMENTO')
           OR h.user_id IS NULL
         )
       `;
@@ -742,5 +765,145 @@ export const getProjectHistory = async (req, res) => {
   } catch (err) {
     console.error('Get history error:', err);
     res.status(500).json({ error: 'Error al cargar historial.' });
+  }
+};
+
+export const reviewProject = async (req, res) => {
+  const projectId = parseInt(req.params.id, 10);
+  const actingUserId = actorId(req);
+  const { statusId, score, observations } = req.body;
+
+  if (isNaN(projectId)) return res.status(400).json({ error: 'ID de proyecto inválido.' });
+  if (!actingUserId) return res.status(401).json({ error: 'Debes iniciar sesión para realizar esta revisión.' });
+
+  try {
+    const reviewResult = await withTransaction(pool, async (client) => {
+      const contexto = await getUserContext(client, actingUserId);
+      const vinculo = await getProjectMembership(client, projectId, actingUserId);
+
+      const roleName = String(contexto?.role_name || '').toLowerCase();
+      const esAdmin = esRolAdministrativo(roleName);
+      const esDocente = roleName.includes('docente');
+      const esMiembroDocente = vinculo && (vinculo.project_role === 'asesor' || vinculo.project_role === 'jurado');
+
+      if (!esAdmin && !esDocente && !esMiembroDocente) {
+        throw new HttpError(403, 'Solo docentes asignados, docentes o administradores pueden registrar revisiones y calificaciones.');
+      }
+
+      const currentRes = await client.query(`
+        SELECT p.*, s.name as status_name
+        FROM public.projects p
+        LEFT JOIN public.statuses s ON p.status_id = s.status_id
+        WHERE p.project_id = $1
+        FOR UPDATE OF p
+      `, [projectId]);
+
+      if (currentRes.rows.length === 0) {
+        throw new HttpError(404, 'Proyecto no encontrado.');
+      }
+      const oldProj = currentRes.rows[0];
+
+      let numericScore = null;
+      if (score !== undefined && score !== null && score !== '') {
+        numericScore = parseFloat(score);
+        if (isNaN(numericScore) || numericScore < 0.0 || numericScore > 5.0) {
+          throw new HttpError(400, 'La calificación debe ser un valor numérico entre 0.0 y 5.0.');
+        }
+      }
+
+      const reviewStatusId = statusId ? parseInt(statusId, 10) : oldProj.status_id;
+      const reviewStatusRes = await client.query(
+        'SELECT name FROM public.statuses WHERE status_id = $1',
+        [reviewStatusId],
+      );
+      const reviewStatusName = reviewStatusRes.rows[0]?.name || String(reviewStatusId);
+      const reviewTransition = getProjectReviewTransition({
+        stage: oldProj.process_stage,
+        requestedStatusName: reviewStatusName,
+        phase: oldProj.process_phase,
+      });
+      let projectStatusId = reviewStatusId;
+      if (reviewTransition.statusName.toLowerCase() !== reviewStatusName.toLowerCase()) {
+        const finalStatus = await client.query(
+          `SELECT status_id FROM public.statuses WHERE LOWER(name) = LOWER($1) ORDER BY status_id LIMIT 1`,
+          [reviewTransition.statusName],
+        );
+        if (!finalStatus.rows[0]) {
+          throw new HttpError(409, `No está configurado el estado ${reviewTransition.statusName} para el proyecto.`);
+        }
+        projectStatusId = finalStatus.rows[0].status_id;
+      }
+
+      const startsResearchPhase = oldProj.process_stage === 'propuesta'
+        && reviewTransition.stage === 'investigacion';
+      await client.query(
+        `UPDATE public.projects
+         SET process_stage = $1,
+             process_phase = $2,
+             status_id = $3,
+             finished_at = CASE WHEN $4 THEN COALESCE(finished_at, NOW()) ELSE finished_at END
+         WHERE project_id = $5`,
+        [
+          reviewTransition.stage,
+          reviewTransition.phase,
+          projectStatusId,
+          reviewTransition.statusName === 'Finalizado',
+          projectId,
+        ],
+      );
+
+      const gradeInsert = await client.query(`
+        INSERT INTO public.project_grades
+          (project_id, evaluator_id, status_id, score, observations, process_phase)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING *
+      `, [
+        projectId,
+        String(actingUserId),
+        reviewStatusId,
+        numericScore,
+        observations ? String(observations).trim() : null,
+        oldProj.process_phase,
+      ]);
+
+      const obsText = observations ? String(observations).trim() : '';
+      const scoreText = numericScore !== null ? ` | Calificación: ${numericScore.toFixed(1)}` : '';
+      const statusChangeText = projectStatusId !== oldProj.status_id ? ` (Estado: ${oldProj.status_name} → ${reviewTransition.statusName})` : '';
+      const phaseTransitionText = startsResearchPhase ? ' La propuesta fue aprobada e inicia Investigación I.' : '';
+      const description = `Revisión y retroalimentación docente${statusChangeText}${phaseTransitionText}${scoreText}.${obsText ? ` Observaciones: "${obsText}"` : ''}`;
+
+      const histRes = await client.query(`
+        INSERT INTO public.histories (description, modified_field, old_value, new_value, change_type, user_id)
+        VALUES ($1, 'revision_evaluacion', $2, $3, 'REVISION', $4)
+        RETURNING history_id
+      `, [
+        description,
+        oldProj.status_name,
+        reviewTransition.statusName,
+        String(actingUserId)
+      ]);
+
+      await client.query(`
+        INSERT INTO public.project_histories (project_id, history_id)
+        VALUES ($1, $2)
+      `, [projectId, histRes.rows[0].history_id]);
+
+      return {
+        grade: gradeInsert.rows[0],
+        statusId: projectStatusId,
+        statusName: reviewTransition.statusName,
+        stage: reviewTransition.stage,
+        phase: reviewTransition.phase,
+        historyId: histRes.rows[0].history_id,
+      };
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Revisión y calificación registradas exitosamente.',
+      data: reviewResult,
+    });
+  } catch (err) {
+    return sendError(res, err, 'Review project error:', 'No fue posible registrar la revisión del proyecto.');
   }
 };

@@ -18,6 +18,7 @@ import DashboardLayout from '../../components/layout/DashboardLayout';
 import { useAuth } from '../../context/AuthContext';
 import { useProgramFilter } from '../../context/ProgramFilterContext';
 import api from '../../lib/api';
+import { userIsDocente } from '../../lib/roles';
 import { generateProjectPdf, generateConsolidatedPdf } from '../../lib/reportPdfGenerator';
 import { generateProjectDocx, generateConsolidatedDocx } from '../../lib/reportDocxGenerator';
 import './ReportesPage.css';
@@ -25,6 +26,7 @@ import './ReportesPage.css';
 export default function ReportesPage() {
   const { user } = useAuth();
   const { selectedProgram, isAdminGeneral } = useProgramFilter();
+  const isDocente = userIsDocente(user);
   const userProgramId = user?.programId ?? null;
   const userProgramName = user?.programName || '';
   const effectiveProgramId = isAdminGeneral ? (selectedProgram === 'all' ? null : selectedProgram) : userProgramId;
@@ -42,13 +44,15 @@ export default function ReportesPage() {
   const [downloadingDocx, setDownloadingDocx] = useState(false);
   const [downloadSuccess, setDownloadSuccess] = useState('');
 
-  // Filters — all optional
+  // Filters — all optional (incluye semestre, periodo, año y docente)
   const [filters, setFilters] = useState({
     search: '',
     statusId: 'all',
     modalityId: 'all',
     lineId: 'all',
     semesterNumber: 'all',
+    academicPeriod: 'all',
+    year: 'all',
     advisorId: 'all',
     startDate: '',
     endDate: '',
@@ -92,6 +96,9 @@ export default function ReportesPage() {
         const academicPeriod = row.academicPeriod ||
           (year ? `${year}-${month <= 6 ? '1' : '2'}` : 'Sin periodo');
 
+        const authorSemester = (row.authors || []).find(a => a.semesterNumber)?.semesterNumber;
+        const semesterNumber = row.semesterNumber || authorSemester || null;
+
         return {
           id: row.id || row.project_id,
           title: row.title || 'Sin título',
@@ -100,17 +107,21 @@ export default function ReportesPage() {
           statusId: row.statusId || '',
           modality: row.modality || 'Sin modalidad',
           modalityId: row.modalityId || '',
-          line: row.line || 'Sin línea',
-          lineId: row.lineId || '',
-          subline: row.subline || 'Sin sublínea',
+          line: row.line || row.line_name || 'Sin línea',
+          lineId: row.lineId || row.research_line_id || '',
+          subline: row.subline || row.subline_name || 'Sin sublínea',
+          sublineId: row.sublineId || row.research_subline_id || '',
+          degreeOptionName: row.degreeOptionName || row.degree_option_name || null,
+          degreeOptionId: row.degreeOptionId || row.degree_option_id || null,
           programName: row.programName || 'Sin programa',
           programId: row.programId || null,
           facultyName: row.facultyName || 'Sin facultad',
-          semesterNumber: row.semesterNumber || null,
+          semesterNumber,
           academicPeriod,
+          year,
           created_at: row.created_at,
           finished_at: row.finished_at,
-          letterLink: row.letterLink || '',
+          letterLink: row.letterLink || row.letter_link || '',
           authors: (row.authors || []).map(a => ({
             id: a.id, name: a.name, email: a.email, role: a.role, semesterNumber: a.semesterNumber,
           })),
@@ -131,7 +142,14 @@ export default function ReportesPage() {
 
       setProjects(mapped);
       if (mapped.length > 0 && !selectedProjectId) {
-        setSelectedProjectId(String(mapped[0].id));
+        const initial = isDocente
+          ? (mapped.find(p =>
+              (p.user_projects || []).some(up => String(up.user_id) === String(user?.id)) ||
+              (p.advisors || []).some(a => String(a.id) === String(user?.id)) ||
+              (p.jurors || []).some(j => String(j.id) === String(user?.id))
+            ) || mapped[0])
+          : mapped[0];
+        setSelectedProjectId(String(initial.id));
       }
     } catch (err) {
       console.error('Error cargando proyectos para reportes:', err);
@@ -139,7 +157,7 @@ export default function ReportesPage() {
     } finally {
       setLoading(false);
     }
-  }, [effectiveProgramId]);
+  }, [effectiveProgramId, isDocente, user?.id, selectedProjectId]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -197,7 +215,7 @@ export default function ReportesPage() {
     return () => { alive = false; };
   }, [selectedProjectId, projects, user?.id]);
 
-  // ── Unique Advisors ────────────────────────────────────────────────────────
+  // ── Unique Advisors, Periods and Years ───────────────────────────────────
   const advisorsList = useMemo(() => {
     const map = new Map();
     projects.forEach(p => {
@@ -208,9 +226,60 @@ export default function ReportesPage() {
     return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
   }, [projects]);
 
+  const periodsList = useMemo(() => {
+    const set = new Set();
+    const sourceList = isDocente
+      ? projects.filter(p => {
+          return (p.user_projects || []).some(up => String(up.user_id) === String(user?.id)) ||
+                 (p.advisors || []).some(a => String(a.id) === String(user?.id)) ||
+                 (p.jurors || []).some(j => String(j.id) === String(user?.id));
+        })
+      : projects;
+    sourceList.forEach(p => {
+      if (p.academicPeriod && p.academicPeriod !== 'Sin periodo') set.add(p.academicPeriod);
+    });
+    if (set.size === 0) {
+      const curYear = new Date().getFullYear();
+      set.add(`${curYear}-1`);
+      set.add(`${curYear}-2`);
+      set.add(`${curYear - 1}-1`);
+      set.add(`${curYear - 1}-2`);
+    }
+    return Array.from(set).sort().reverse();
+  }, [projects, isDocente, user?.id]);
+
+  const yearsList = useMemo(() => {
+    const set = new Set();
+    const sourceList = isDocente
+      ? projects.filter(p => {
+          return (p.user_projects || []).some(up => String(up.user_id) === String(user?.id)) ||
+                 (p.advisors || []).some(a => String(a.id) === String(user?.id)) ||
+                 (p.jurors || []).some(j => String(j.id) === String(user?.id));
+        })
+      : projects;
+    sourceList.forEach(p => {
+      if (p.year) set.add(String(p.year));
+    });
+    if (set.size === 0) {
+      const curYear = new Date().getFullYear();
+      set.add(String(curYear));
+      set.add(String(curYear - 1));
+      set.add(String(curYear - 2));
+    }
+    return Array.from(set).sort().reverse();
+  }, [projects, isDocente, user?.id]);
+
   // ── Filtered Projects (all filters optional) ──────────────────────────────
   const filteredProjects = useMemo(() => {
     return projects.filter(p => {
+      // Si el usuario es docente, por defecto sólo ve los proyectos donde es asesor o jurado
+      if (isDocente) {
+        const isMyProject = (p.user_projects || []).some(up => String(up.user_id) === String(user?.id)) ||
+                            (p.advisors || []).some(a => String(a.id) === String(user?.id)) ||
+                            (p.jurors || []).some(j => String(j.id) === String(user?.id));
+        if (!isMyProject) return false;
+      }
+
       if (filters.search.trim()) {
         const term = filters.search.trim().toLowerCase();
         const inTitle = (p.title || '').toLowerCase().includes(term);
@@ -224,6 +293,8 @@ export default function ReportesPage() {
       if (filters.modalityId !== 'all' && String(p.modalityId) !== String(filters.modalityId)) return false;
       if (filters.lineId !== 'all' && String(p.lineId) !== String(filters.lineId)) return false;
       if (filters.semesterNumber !== 'all' && String(p.semesterNumber) !== String(filters.semesterNumber)) return false;
+      if (filters.academicPeriod !== 'all' && String(p.academicPeriod) !== String(filters.academicPeriod)) return false;
+      if (filters.year !== 'all' && String(p.year) !== String(filters.year)) return false;
       if (filters.advisorId !== 'all') {
         const hasAdv = (p.advisors || []).some(a => String(a.id) === String(filters.advisorId));
         if (!hasAdv) return false;
@@ -238,22 +309,29 @@ export default function ReportesPage() {
       }
       return true;
     });
-  }, [projects, filters]);
+  }, [projects, filters, isDocente, user?.id]);
 
   // Projects matching individual search
   const selectableProjects = useMemo(() => {
-    if (!projectSearchTerm.trim()) return projects;
+    const base = isDocente
+      ? projects.filter(p => {
+          return (p.user_projects || []).some(up => String(up.user_id) === String(user?.id)) ||
+                 (p.advisors || []).some(a => String(a.id) === String(user?.id)) ||
+                 (p.jurors || []).some(j => String(j.id) === String(user?.id));
+        })
+      : projects;
+    if (!projectSearchTerm.trim()) return base;
     const term = projectSearchTerm.trim().toLowerCase();
-    return projects.filter(p =>
+    return base.filter(p =>
       (p.title || '').toLowerCase().includes(term) ||
       (p.code || '').toLowerCase().includes(term) ||
       (p.authors || []).some(a => (a.name || '').toLowerCase().includes(term))
     );
-  }, [projects, projectSearchTerm]);
+  }, [projects, projectSearchTerm, isDocente, user?.id]);
 
   const handleResetFilters = () => setFilters({
     search: '', statusId: 'all', modalityId: 'all', lineId: 'all',
-    semesterNumber: 'all', advisorId: 'all', startDate: '', endDate: '',
+    semesterNumber: 'all', academicPeriod: 'all', year: 'all', advisorId: 'all', startDate: '', endDate: '',
   });
 
   const getActiveFilterSummary = () => ({
@@ -262,6 +340,8 @@ export default function ReportesPage() {
     modalityName: filters.modalityId !== 'all' ? catalogs.modalities?.find(m => String(m.modality_id) === String(filters.modalityId))?.name : null,
     lineName: filters.lineId !== 'all' ? catalogs.lines?.find(l => String(l.research_line_id) === String(filters.lineId))?.name : null,
     semesterName: filters.semesterNumber !== 'all' ? `${filters.semesterNumber}° Semestre` : null,
+    periodName: filters.academicPeriod !== 'all' ? filters.academicPeriod : null,
+    yearName: filters.year !== 'all' ? filters.year : null,
     advisorName: filters.advisorId !== 'all' ? advisorsList.find(a => String(a.id) === String(filters.advisorId))?.name : null,
     startDate: filters.startDate || null,
     endDate: filters.endDate || null,
@@ -311,8 +391,8 @@ export default function ReportesPage() {
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <DashboardLayout
-      title="Generación de Reportes"
-      subtitle="Exportación institucional de proyectos de grado en PDF y Word (.docx)"
+      title={isDocente ? "Generación de Reportes para Docente" : "Generación de Reportes"}
+      subtitle={isDocente ? "Reportes descargables en PDF y Word (.docx) con la cantidad de proyectos asignados" : "Exportación institucional de proyectos de grado en PDF y Word (.docx)"}
     >
       <div className="reportes-container">
         {/* Scope Banner */}
@@ -320,17 +400,23 @@ export default function ReportesPage() {
           <div className="scope-info">
             <div className="scope-icon-wrap"><Building2 size={22} /></div>
             <div>
-              <span className="scope-tag">Ámbito Institucional</span>
+              <span className="scope-tag">{isDocente ? 'Docente' : 'Ámbito Institucional'}</span>
               <h3 className="scope-title">
-                {userProgramName ? `Programa: ${userProgramName}` : 'Reportes — Todos los Programas'}
+                {isDocente
+                  ? `Mis Proyectos Asignados — ${userProgramName || 'General'}`
+                  : (userProgramName ? `Programa: ${userProgramName}` : 'Reportes — Todos los Programas')}
               </h3>
               <p className="scope-desc">
-                {loading ? 'Cargando proyectos...' : `${projects.length} proyecto${projects.length !== 1 ? 's' : ''} disponible${projects.length !== 1 ? 's' : ''} en el sistema.`}
+                {loading
+                  ? 'Cargando proyectos...'
+                  : isDocente
+                    ? `Cantidad de proyectos asignados: ${filteredProjects.length}`
+                    : `${projects.length} proyecto${projects.length !== 1 ? 's' : ''} disponible${projects.length !== 1 ? 's' : ''} en el sistema.`}
               </p>
             </div>
           </div>
           <div className="scope-meta">
-            <span className="scope-user"><strong>Administrador:</strong> {user?.name || 'Usuario'}</span>
+            <span className="scope-user"><strong>{isDocente ? 'Docente:' : 'Administrador:'}</strong> {user?.name || 'Usuario'}</span>
             <span className="scope-time"><strong>Fecha:</strong> {new Date().toLocaleDateString('es-CO')}</span>
           </div>
         </div>
@@ -359,8 +445,8 @@ export default function ReportesPage() {
             onClick={() => { setActiveTab('general'); setDownloadSuccess(''); }}
           >
             <FileSpreadsheet size={18} />
-            <span>Reporte Consolidado</span>
-            {!loading && <span className="tab-badge">{projects.length}</span>}
+            <span>{isDocente ? 'Reporte de Proyectos Asignados' : 'Reporte Consolidado'}</span>
+            {!loading && <span className="tab-badge">{filteredProjects.length}</span>}
           </button>
           <button
             type="button"
@@ -379,31 +465,78 @@ export default function ReportesPage() {
             <div className="reportes-filters-card">
               <div className="filters-card-header">
                 <div className="filters-title">
-                  <Filter size={18} />
-                  <h4>Filtros de Búsqueda <span className="filters-optional">(todos opcionales)</span></h4>
+                  <span className="filters-title-icon"><Filter size={16} /></span>
+                  <div>
+                    <h4>Filtros de Búsqueda</h4>
+                    <span className="filters-optional">Todos son opcionales. Sin filtros se genera el reporte con todos los proyectos{isDocente ? ' asignados' : ''}.</span>
+                  </div>
                 </div>
                 <button type="button" className="btn-clean-filters" onClick={handleResetFilters}>
                   <RefreshCw size={14} />
-                  <span>Limpiar filtros</span>
+                  <span>Ver todos / Limpiar</span>
                 </button>
               </div>
 
-              <div className="filters-grid">
-                {/* Search */}
-                <div className="filter-group filter-group--wide">
-                  <label htmlFor="filter-search">Búsqueda libre (código, título, autor, asesor o línea)</label>
-                  <div className="input-search-wrap">
-                    <Search size={16} />
-                    <input
-                      id="filter-search"
-                      type="text"
-                      placeholder="Escribe cualquier término para filtrar..."
-                      value={filters.search}
-                      onChange={e => setFilters(prev => ({ ...prev, search: e.target.value }))}
-                    />
+              {/* Search */}
+              <div className="filter-group filter-group--search">
+                <label htmlFor="filter-search">Búsqueda libre</label>
+                <div className="input-search-wrap">
+                  <Search size={16} />
+                  <input
+                    id="filter-search"
+                    type="text"
+                    placeholder="Código, título, autor, asesor o línea de investigación..."
+                    value={filters.search}
+                    onChange={e => setFilters(prev => ({ ...prev, search: e.target.value }))}
+                  />
+                </div>
+              </div>
+
+              {/* Section: Periodo académico */}
+              <div className="filters-section">
+                <h5 className="filters-section-title">Periodo académico</h5>
+                <div className="filters-grid filters-grid--3">
+                  {/* Semester */}
+                  <div className="filter-group">
+                    <label htmlFor="filter-semester">Semestre</label>
+                    <select id="filter-semester" value={filters.semesterNumber} onChange={e => setFilters(p => ({ ...p, semesterNumber: e.target.value }))}>
+                      <option value="all">Todos los semestres</option>
+                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(s => (
+                        <option key={s} value={String(s)}>
+                          {s}° Semestre{s >= 8 ? ` (Investigación ${s === 8 ? 'I' : s === 9 ? 'II' : 'III'})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Academic Period */}
+                  <div className="filter-group">
+                    <label htmlFor="filter-period">Periodo</label>
+                    <select id="filter-period" value={filters.academicPeriod} onChange={e => setFilters(p => ({ ...p, academicPeriod: e.target.value }))}>
+                      <option value="all">Todos los periodos</option>
+                      {periodsList.map(period => (
+                        <option key={period} value={period}>{period}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Year */}
+                  <div className="filter-group">
+                    <label htmlFor="filter-year">Año</label>
+                    <select id="filter-year" value={filters.year} onChange={e => setFilters(p => ({ ...p, year: e.target.value }))}>
+                      <option value="all">Todos los años</option>
+                      {yearsList.map(y => (
+                        <option key={y} value={y}>{y}</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
+              </div>
 
+              {/* Section: Características del proyecto */}
+              <div className="filters-section">
+                <h5 className="filters-section-title">Características del proyecto</h5>
+                <div className={`filters-grid ${isDocente ? 'filters-grid--3' : 'filters-grid--4'}`}>
                 {/* Status */}
                 <div className="filter-group">
                   <label htmlFor="filter-status">Estado</label>
@@ -437,38 +570,33 @@ export default function ReportesPage() {
                   </select>
                 </div>
 
-                {/* Semester */}
-                <div className="filter-group">
-                  <label htmlFor="filter-semester">Semestre del Estudiante</label>
-                  <select id="filter-semester" value={filters.semesterNumber} onChange={e => setFilters(p => ({ ...p, semesterNumber: e.target.value }))}>
-                    <option value="all">Todos los semestres</option>
-                    <option value="8">8° Semestre (Investigación I)</option>
-                    <option value="9">9° Semestre (Investigación II)</option>
-                    <option value="10">10° Semestre (Investigación III)</option>
-                  </select>
+                {/* Advisor (only if not docente) */}
+                {!isDocente && (
+                  <div className="filter-group">
+                    <label htmlFor="filter-advisor">Docente Asesor</label>
+                    <select id="filter-advisor" value={filters.advisorId} onChange={e => setFilters(p => ({ ...p, advisorId: e.target.value }))}>
+                      <option value="all">Todos los asesores</option>
+                      {advisorsList.map(adv => (
+                        <option key={adv.id} value={adv.id}>{adv.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 </div>
+              </div>
 
-                {/* Advisor */}
-                <div className="filter-group">
-                  <label htmlFor="filter-advisor">Docente Asesor</label>
-                  <select id="filter-advisor" value={filters.advisorId} onChange={e => setFilters(p => ({ ...p, advisorId: e.target.value }))}>
-                    <option value="all">Todos los asesores</option>
-                    {advisorsList.map(adv => (
-                      <option key={adv.id} value={adv.id}>{adv.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Date From */}
-                <div className="filter-group">
-                  <label htmlFor="filter-start-date">Fecha Registro Desde</label>
-                  <input id="filter-start-date" type="date" value={filters.startDate} onChange={e => setFilters(p => ({ ...p, startDate: e.target.value }))} />
-                </div>
-
-                {/* Date To */}
-                <div className="filter-group">
-                  <label htmlFor="filter-end-date">Fecha Registro Hasta</label>
-                  <input id="filter-end-date" type="date" value={filters.endDate} onChange={e => setFilters(p => ({ ...p, endDate: e.target.value }))} />
+              {/* Section: Fechas */}
+              <div className="filters-section">
+                <h5 className="filters-section-title">Rango de fechas de registro</h5>
+                <div className="filters-grid filters-grid--2">
+                  <div className="filter-group">
+                    <label htmlFor="filter-start-date">Desde</label>
+                    <input id="filter-start-date" type="date" value={filters.startDate} max={filters.endDate || undefined} onChange={e => setFilters(p => ({ ...p, startDate: e.target.value }))} />
+                  </div>
+                  <div className="filter-group">
+                    <label htmlFor="filter-end-date">Hasta</label>
+                    <input id="filter-end-date" type="date" value={filters.endDate} min={filters.startDate || undefined} onChange={e => setFilters(p => ({ ...p, endDate: e.target.value }))} />
+                  </div>
                 </div>
               </div>
             </div>
@@ -477,11 +605,21 @@ export default function ReportesPage() {
             <div className="reportes-export-toolbar">
               <div className="toolbar-stats">
                 <span className="stats-badge">
-                  <strong>{filteredProjects.length}</strong> de {projects.length} proyectos seleccionados
+                  {isDocente ? (
+                    <><strong>Cantidad de proyectos asignados:</strong> {filteredProjects.length}</>
+                  ) : (
+                    <><strong>{filteredProjects.length}</strong> de {projects.length} proyectos seleccionados</>
+                  )}
                 </span>
                 {filters.search && <span className="stats-filter-tag">Búsqueda: "{filters.search}"</span>}
-                {filters.statusId !== 'all' && <span className="stats-filter-tag">Estado activo</span>}
+                {filters.statusId !== 'all' && <span className="stats-filter-tag">Estado: {catalogs.statuses?.find(s => String(s.status_id) === String(filters.statusId))?.name || 'activo'}</span>}
+                {filters.modalityId !== 'all' && <span className="stats-filter-tag">Modalidad: {catalogs.modalities?.find(m => String(m.modality_id) === String(filters.modalityId))?.name}</span>}
+                {filters.lineId !== 'all' && <span className="stats-filter-tag">Línea: {catalogs.lines?.find(l => String(l.research_line_id) === String(filters.lineId))?.name}</span>}
                 {filters.semesterNumber !== 'all' && <span className="stats-filter-tag">Semestre {filters.semesterNumber}°</span>}
+                {filters.academicPeriod !== 'all' && <span className="stats-filter-tag">Periodo: {filters.academicPeriod}</span>}
+                {filters.year !== 'all' && <span className="stats-filter-tag">Año: {filters.year}</span>}
+                {filters.advisorId !== 'all' && <span className="stats-filter-tag">Docente: {advisorsList.find(a => String(a.id) === String(filters.advisorId))?.name}</span>}
+                {(filters.startDate || filters.endDate) && <span className="stats-filter-tag">Fechas: {filters.startDate || 'Inicio'} al {filters.endDate || 'Hoy'}</span>}
               </div>
               <div className="toolbar-buttons">
                 <button
@@ -706,10 +844,10 @@ export default function ReportesPage() {
                   <div className="dossier-section">
                     <h5 className="section-title"><BookOpen size={16} /> Información Académica</h5>
                     <div className="info-list">
-                      <div className="info-item"><span className="info-label">Línea de investigación:</span><span className="info-val">{selectedProjectDetail.line}</span></div>
-                      <div className="info-item"><span className="info-label">Sublínea:</span><span className="info-val">{selectedProjectDetail.subline}</span></div>
+                      <div className="info-item"><span className="info-label">Línea de investigación:</span><span className="info-val">{selectedProjectDetail.line || '—'}</span></div>
+                      <div className="info-item"><span className="info-label">Sublínea:</span><span className="info-val">{selectedProjectDetail.subline || '—'}</span></div>
                       <div className="info-item"><span className="info-label">Opción de grado:</span><span className="info-val">{selectedProjectDetail.degreeOptionName || 'Opción de grado pendiente'}</span></div>
-                      <div className="info-item"><span className="info-label">Periodo académico:</span><span className="info-val">{selectedProjectDetail.academicPeriod}</span></div>
+                      <div className="info-item"><span className="info-label">Periodo académico:</span><span className="info-val">{selectedProjectDetail.academicPeriod || '—'}</span></div>
                       <div className="info-item">
                         <span className="info-label">Carta de aprobación:</span>
                         <span className="info-val">

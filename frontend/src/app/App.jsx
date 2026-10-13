@@ -26,6 +26,7 @@ const Dashboard        = lazy(() => import('../features/dashboard/Dashboard'));
 const AjustesPage      = lazy(() => import('../features/ajustes/Ajustes'));
 const ProyectosPage    = lazy(() => import('../features/proyectos/ProyectosPage').then((m) => ({ default: m.ProyectosPage })));
 const UsuariosPage     = lazy(() => import('../features/usuarios/UsuariosPage').then((m) => ({ default: m.UsuariosPage })));
+const EstudiantesPage  = lazy(() => import('../features/usuarios/EstudiantesPage').then((m) => ({ default: m.EstudiantesPage })));
 const GestionDocente   = lazy(() => import('../features/gestion-docente/GestionDocente'));
 const BancoProyectos   = lazy(() => import('../features/banco-proyectos/BancoProyectos'));
 const ReportesPage     = lazy(() => import('../features/reportes/ReportesPage'));
@@ -65,10 +66,11 @@ export default function App() {
                       al Administrador de Programa; AdminGeneralPage decide internamente
                       qué tanto de la pantalla mostrarle a cada uno. */}
                   <Route path="/administracion-general" element={<ProtectedRoute requiredRole="admin"><AdminGeneralPage /></ProtectedRoute>} />
-                  <Route path="/reportes" element={<ProtectedRoute requiredRole="admin"><ReportesPage /></ProtectedRoute>} />
+                  <Route path="/reportes" element={<ProtectedRoute requiredRole={['admin', 'docente']}><ReportesPage /></ProtectedRoute>} />
                   <Route path="/subir" element={<ProtectedRoute excludedRole={['docente', 'estudiante']}><GestionDocente /></ProtectedRoute>} />
                   <Route path="/facultades" element={<ProtectedRoute><BancoProyectos /></ProtectedRoute>} />
                   <Route path="/usuarios" element={<ProtectedRoute requiredRole="admin"><UsuariosPage /></ProtectedRoute>} />
+                  <Route path="/estudiantes" element={<ProtectedRoute requiredRole="admin"><EstudiantesPage /></ProtectedRoute>} />
                   <Route path="/ajustes" element={<ProtectedRoute><AjustesPage /></ProtectedRoute>} />
                   <Route path="*" element={<Navigate to="/login" replace />} />
                 </Routes>

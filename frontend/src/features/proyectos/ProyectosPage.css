@@ -779,6 +779,10 @@
         .student-process-project { display: grid; gap: 3px; padding: 12px 14px; border: 1px solid var(--border-color); border-radius: var(--border-radius-md); background: var(--bg-primary); }
         .student-process-project strong { color: var(--text-primary); font-size: .96rem; }
         .student-process-project span { color: var(--text-secondary); font-size: .8rem; }
+        .student-process-message--rejected { color: #a52d36; font-weight: 700; }
+        .student-process-grades { display: grid; gap: 4px; margin-top: 8px; padding-top: 9px; border-top: 1px solid var(--border-color); }
+        .student-process-grades > strong { font-size: .78rem; }
+        .student-process-grades > span { color: var(--text-secondary); font-size: .76rem; }
         .student-process-note { color: var(--text-muted); font-size: .78rem; }
         .student-process-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
         .student-process-actions button, .student-process-form-actions button { padding: 7px 10px; border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--accent-primary); background: var(--bg-card); font-size: .76rem; font-weight: 600; cursor: pointer; }

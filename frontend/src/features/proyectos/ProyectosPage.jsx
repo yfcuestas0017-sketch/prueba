@@ -10,6 +10,10 @@ import {
   Pencil,
   User,
   X,
+  Award,
+  FileCheck,
+  CheckCircle2,
+  Loader2,
 } from 'lucide-react';
 import DashboardLayout from '../../components/layout/DashboardLayout';
 import { useAuth } from '../../context/AuthContext';
@@ -17,6 +21,11 @@ import { useProgramFilter } from '../../context/ProgramFilterContext';
 import Button from '../../components/ui/Button';
 import EditProjectModal from './EditProjectModal';
 import CrearProyecto from './CrearProyecto';
+import {
+  getStudentProjectMessage,
+  isFinalProjectStatus,
+  isRejectedProjectStatus,
+} from './projectStatus';
 import api from '../../lib/api';
 import { generatePrefix } from './generatePrefix';
 import './ProyectosPage.css';
@@ -79,6 +88,11 @@ export function ProyectosPage() {
   const [detailModal, setDetailModal] = useState(null);
   const [historyModal, setHistoryModal] = useState(null);
   const [editModal, setEditModal] = useState(null);
+  const [reviewModal, setReviewModal] = useState(null);
+  const [reviewData, setReviewData] = useState({ statusId: '', score: '', observations: '' });
+  const [reviewSaving, setReviewSaving] = useState(false);
+  const [reviewError, setReviewError] = useState('');
+  const [reviewSuccess, setReviewSuccess] = useState('');
   const [studentProcess, setStudentProcess] = useState(null);
   const [studentProcessLoading, setStudentProcessLoading] = useState(false);
   const [studentRecords, setStudentRecords] = useState({ progress: [], documents: [] });
@@ -114,6 +128,55 @@ export function ProyectosPage() {
     setNewCoauthorEmail('');
   };
 
+  const handleOpenReview = (project) => {
+    setReviewModal(project);
+    setReviewData({
+      statusId: project.statusId || '',
+      score: project.latestScore !== null && project.latestScore !== undefined ? String(project.latestScore) : '',
+      observations: '',
+    });
+    setReviewError('');
+    setReviewSuccess('');
+  };
+
+  const handleSubmitReview = async (e) => {
+    e.preventDefault();
+    if (!reviewModal) return;
+
+    if (!reviewData.statusId) {
+      setReviewError('Debes seleccionar un estado para el proyecto.');
+      return;
+    }
+
+    if (reviewData.score !== '' && reviewData.score !== null) {
+      const num = parseFloat(reviewData.score);
+      if (isNaN(num) || num < 0.0 || num > 5.0) {
+        setReviewError('La calificación debe estar entre 0.0 y 5.0.');
+        return;
+      }
+    }
+
+    setReviewSaving(true);
+    setReviewError('');
+    try {
+      await api.reviewProject(reviewModal.id, {
+        statusId: Number(reviewData.statusId),
+        score: reviewData.score !== '' ? parseFloat(reviewData.score) : null,
+        observations: reviewData.observations.trim() || null,
+      });
+
+      setReviewSuccess('¡Revisión y calificación registradas exitosamente!');
+      setTimeout(() => {
+        setReviewModal(null);
+        loadData();
+      }, 1200);
+    } catch (err) {
+      setReviewError(err.message || 'No fue posible registrar la revisión.');
+    } finally {
+      setReviewSaving(false);
+    }
+  };
+
   const fetchHistory = async (projectId) => {
     if (!projectId) return;
 
@@ -123,7 +186,8 @@ export function ProyectosPage() {
       const mappedHistory = (data ?? []).map((history) => {
         const field = (history.modified_field || '').toLowerCase();
         let title = history.description || 'Actualización registrada';
-        if (field === 'title') title = 'Modificación de Título';
+        if (history.change_type === 'REVISION' || field === 'revision_evaluacion') title = 'Revisión y Calificación Docente';
+        else if (field === 'title') title = 'Modificación de Título';
         else if (field === 'status_id') title = 'Actualización de Estado';
         else if (field === 'modality_id') title = 'Actualización de Modalidad';
         else if (field === 'research_line_id') title = 'Actualización de Línea de Investigación';
@@ -147,6 +211,7 @@ export function ProyectosPage() {
         return {
           id: history.history_id,
           title,
+          description: history.description || '',
           modifiedField: history.modified_field || null,
           oldValue: history.old_value || null,
           newValue: history.new_value || null,
@@ -204,9 +269,6 @@ export function ProyectosPage() {
         const name = (l.name || '').toLowerCase();
         if (isPsicologia) {
           return [5, 6, 7].includes(l.research_line_id) || name.includes('psicolog');
-        }
-        if (isSistemas) {
-          return [1, 2, 3, 4].includes(l.research_line_id) || (!name.includes('psicolog') && !name.includes('salud') && !name.includes('comunitaria'));
         }
         return true;
       });
@@ -267,6 +329,10 @@ export function ProyectosPage() {
           letterLink: row.letterLink || '',
           generalObjective: row.generalObjective || row.general_objective || null,
           specificObjectives: row.specificObjectives || row.specific_objectives || null,
+          latestScore: row.latestScore ?? row.latest_score ?? null,
+          latestObservations: row.latestObservations || row.latest_observations || null,
+          latestGradeDate: row.latestGradeDate || row.latest_grade_date || null,
+          latestEvaluatorName: row.latestEvaluatorName || row.latest_evaluator_name || null,
           isOwned: (row.user_projects || []).some(up => String(up.user_id) === String(user?.id)),
           coauthors: row.authors || [],
           authorsList: row.authors || [],
@@ -372,29 +438,39 @@ export function ProyectosPage() {
   const studentCanCreate = isStudent && studentProcess?.canCreate === true;
   const studentPhase = studentProcess?.phase;
   const studentSemester = studentProcess?.semesterNumber;
-  const studentStageTitle = studentPhase === 'I'
-    ? 'Investigación I'
-    : studentPhase === 'II'
-      ? 'Investigación II'
-      : studentPhase === 'III'
-        ? 'Investigación III'
-        : 'Proceso de investigación';
-  const studentStageDescription = studentPhase === 'I'
+  const studentStageTitle = studentProcess?.project?.processStage === 'propuesta'
     ? 'Propuesta de investigación'
-    : studentPhase === 'II'
-      ? 'Continuación del proyecto de investigación'
-      : studentPhase === 'III'
-        ? 'Finalización del proyecto de investigación'
-        : 'Consulta tu proceso académico';
-  const studentProcessMessage = studentProcess?.project
-    ? 'Ya tienes un proyecto de investigación registrado.'
     : studentPhase === 'I'
-      ? 'Aún no tienes un proyecto de investigación registrado.'
+      ? 'Investigación I'
       : studentPhase === 'II'
-        ? 'No tienes un proyecto de Investigación I registrado. Debes tener una propuesta previa para continuar con Investigación II.'
+        ? 'Investigación II'
         : studentPhase === 'III'
-          ? 'No tienes un proyecto de investigación asociado. No es posible iniciar un nuevo proyecto desde Investigación III.'
-          : 'No encontramos el semestre académico de tu perfil.';
+          ? 'Investigación III'
+          : 'Proceso de investigación';
+  const studentStageDescription = studentProcess?.project?.processStage === 'propuesta'
+    ? 'Pendiente de evaluación y aprobación'
+    : studentPhase === 'I'
+      ? 'Propuesta de investigación'
+      : studentPhase === 'II'
+        ? 'Continuación del proyecto de investigación'
+        : studentPhase === 'III'
+          ? 'Finalización del proyecto de investigación'
+          : 'Consulta tu proceso académico';
+  const studentProcessDefaultMessage = studentProcess?.project?.processStage === 'propuesta'
+    ? 'Tu propuesta está registrada y pendiente de evaluación. Investigación I iniciará cuando sea aprobada.'
+    : studentProcess?.project
+      ? 'Ya tienes un proyecto de investigación registrado.'
+      : studentPhase === 'I'
+        ? 'Aún no tienes un proyecto de investigación registrado.'
+        : studentPhase === 'II'
+          ? 'No tienes un proyecto de Investigación I registrado. Debes tener una propuesta previa para continuar con Investigación II.'
+          : studentPhase === 'III'
+            ? 'No tienes un proyecto de investigación asociado. No es posible iniciar un nuevo proyecto desde Investigación III.'
+            : 'No encontramos el semestre académico de tu perfil.';
+  const studentProcessMessage = getStudentProjectMessage(
+    studentProcess?.project,
+    studentProcessDefaultMessage,
+  );
 
   const processStepState = (step) => {
     if (!studentPhase) return 'pending';
@@ -689,7 +765,9 @@ export function ProyectosPage() {
             </div>
 
             <div className="student-process-content">
-              <p>{studentProcessMessage}</p>
+              <p className={isRejectedProjectStatus(studentProcess?.project?.status) ? 'student-process-message--rejected' : undefined}>
+                {studentProcessMessage}
+              </p>
               {studentProcess?.reason === 'semester_missing' && <div className="student-process-form">
                 <strong>Completa tu semestre académico</strong>
                 <select value={studentActionData.semesterId || ''} onChange={(event) => setStudentActionData((current) => ({ ...current, semesterId: event.target.value }))}>
@@ -703,17 +781,33 @@ export function ProyectosPage() {
                 <div className="student-process-project">
                   <strong>{studentProcess.project.title}</strong>
                   <span>{studentProcess.project.code || 'Sin código'} · {studentProcess.project.status || 'Sin estado'}</span>
+                  {studentProcess.project.processPhase && (
+                    <span>Fase actual: Investigación {['', 'I', 'II', 'III'][studentProcess.project.processPhase]}</span>
+                  )}
                   <span>Línea: {studentProcess.project.line || 'No registrada'}</span>
                   <span>Opción de grado: <strong>{studentProcess.project.degreeOptionName || 'Opción de grado pendiente'}</strong></span>
                   <span>Integrantes: {studentProcess.project.participants?.map((person) => person.name).join(', ') || 'No registrados'}</span>
+                  {studentProcess.project.phaseGrades?.length > 0 && (
+                    <div className="student-process-grades" aria-label="Calificaciones por fase">
+                      <strong>Calificaciones registradas</strong>
+                      {studentProcess.project.phaseGrades.map((grade) => (
+                        <span key={grade.id}>
+                          {grade.phase ? `Investigación ${['', 'I', 'II', 'III'][grade.phase]}` : 'Propuesta'}
+                          {' · '}
+                          {grade.score === null ? 'Sin nota' : `${Number(grade.score).toFixed(1)} / 5.0`}
+                          {grade.observations ? ` · ${grade.observations}` : ''}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
               {studentPhase === 'III' && studentProcess?.project && (() => {
-                const projectStatus = (studentProcess.project.status || '').toLowerCase();
-                const isApprovedOrFinished = ['finalizado', 'terminado', 'completado', 'aprobado', 'sustentado'].some(word => projectStatus.includes(word));
+                const isRejected = isRejectedProjectStatus(studentProcess.project.status);
+                const isFinalized = isFinalProjectStatus(studentProcess.project.status);
                 const bibliotecaDoc = studentRecords.documents.find(d => d.document_type === 'enlace_biblioteca') || (studentRecords.documents.length > 0 ? studentRecords.documents[0] : null);
 
-                if (isApprovedOrFinished || Boolean(bibliotecaDoc)) {
+                if (!isRejected && (isFinalized || Boolean(bibliotecaDoc))) {
                   return (
                     <div className="student-process-finalizado">
                       <div className="student-process-finalizado-header">
@@ -721,7 +815,7 @@ export function ProyectosPage() {
                         <div>
                           <strong>¡Proyecto Aprobado y Culminado!</strong>
                           <p>
-                            {isApprovedOrFinished
+                            {isFinalized
                               ? `Tu proyecto de grado ha superado satisfactoriamente todas las etapas investigativas (Investigación I, II e III) y cuenta con estado "${studentProcess.project.status}". El proceso ha culminado exitosamente.`
                               : 'Has registrado exitosamente el documento final de Investigación III en el repositorio institucional. El proyecto se encuentra registrado y cerrado para nuevas modificaciones.'}
                           </p>
@@ -772,10 +866,10 @@ export function ProyectosPage() {
                 );
               })()}
               {studentRecords.documents.length > 0 && studentPhase === 'III' && (() => {
-                const projectStatus = (studentProcess?.project?.status || '').toLowerCase();
-                const isApprovedOrFinished = ['finalizado', 'terminado', 'completado', 'aprobado', 'sustentado'].some(word => projectStatus.includes(word));
+                const isRejected = isRejectedProjectStatus(studentProcess?.project?.status);
+                const isFinalized = isFinalProjectStatus(studentProcess?.project?.status);
                 const bibliotecaDoc = studentRecords.documents.find(d => d.document_type === 'enlace_biblioteca') || studentRecords.documents[0];
-                if (isApprovedOrFinished || Boolean(bibliotecaDoc)) return null;
+                if ((!isRejected && isFinalized) || Boolean(bibliotecaDoc)) return null;
                 return <div className="student-process-records"><strong>Documentos registrados</strong>{studentRecords.documents.map((item) => <a key={item.document_id} href={item.file_url} target="_blank" rel="noreferrer">{item.document_type} · {new Date(item.delivered_at).toLocaleDateString('es-CO')}</a>)}</div>;
               })()}
             </div>
@@ -1081,6 +1175,7 @@ export function ProyectosPage() {
                 <th>Código</th>
                 <th>Título / Línea</th>
                 <th>Estado</th>
+                <th>Calificación</th>
                 <th>Modalidad</th>
                 <th>Autores</th>
                 <th>Año</th>
@@ -1089,7 +1184,7 @@ export function ProyectosPage() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan="7" className="table-empty">Cargando proyectos...</td></tr>
+                <tr><td colSpan="8" className="table-empty">Cargando proyectos...</td></tr>
               ) : filteredProjects.length > 0 ? (
                 filteredProjects.map((project) => (
                   <tr key={project.id} className="table-row">
@@ -1099,6 +1194,20 @@ export function ProyectosPage() {
                       <span className="project-meta">{project.line}</span>
                     </td>
                     <td data-label="Estado"><span className="badge">{project.status}</span></td>
+                    <td data-label="Calificación">
+                      {project.latestScore !== null && project.latestScore !== undefined ? (
+                        <span className="badge" style={{
+                          background: project.latestScore >= 3.0 ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                          color: project.latestScore >= 3.0 ? '#16a34a' : '#dc2626',
+                          fontWeight: 700,
+                          border: `1px solid ${project.latestScore >= 3.0 ? '#22c55e' : '#ef4444'}`
+                        }}>
+                          ★ {Number(project.latestScore).toFixed(1)}
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Sin calificar</span>
+                      )}
+                    </td>
                     <td data-label="Modalidad">{project.modality}</td>
                     <td className="project-meta" data-label="Autores">
                       {project.authorsArray.map((author, i) => (
@@ -1115,7 +1224,19 @@ export function ProyectosPage() {
                         >
                           Ver
                         </Button>
-                        {(!isLimitedUser || project.isOwned || project.myRole === 'autor') && (
+                        {(!isStudent) && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            icon={FileCheck}
+                            onClick={() => handleOpenReview(project)}
+                            title="Revisar y calificar proyecto"
+                            style={{ color: 'var(--accent-primary)', fontWeight: 600 }}
+                          >
+                            Revisar
+                          </Button>
+                        )}
+                        {(!isStudent && (!isLimitedUser || project.isOwned || project.myRole === 'autor')) && (
                           <Button variant="ghost" size="sm" onClick={() => setEditModal(project)}>
                             {isLimitedUser ? 'Gestionar' : 'Editar'}
                           </Button>
@@ -1134,7 +1255,7 @@ export function ProyectosPage() {
                   </tr>
                 ))
               ) : (
-                <tr><td colSpan="7" className="table-empty">No hay proyectos que coincidan con los filtros.</td></tr>
+                <tr><td colSpan="8" className="table-empty">No hay proyectos que coincidan con los filtros.</td></tr>
               )}
             </tbody>
           </table>
@@ -1159,6 +1280,16 @@ export function ProyectosPage() {
                 <div className="modal-badges">
                   <span className="badge">{detailModal.status}</span>
                   <span className="badge badge--muted">{detailModal.modality}</span>
+                  {detailModal.latestScore !== null && detailModal.latestScore !== undefined && (
+                    <span className="badge" style={{
+                      background: detailModal.latestScore >= 3.0 ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                      color: detailModal.latestScore >= 3.0 ? '#16a34a' : '#dc2626',
+                      fontWeight: 700,
+                      border: `1px solid ${detailModal.latestScore >= 3.0 ? '#22c55e' : '#ef4444'}`
+                    }}>
+                      Calificación: {Number(detailModal.latestScore).toFixed(1)} / 5.0
+                    </span>
+                  )}
                   {detailModal.isOwned && <span className="badge badge--owned">Mi proyecto</span>}
                 </div>
 
@@ -1232,6 +1363,24 @@ export function ProyectosPage() {
                   </div>
                 )}
 
+                {detailModal.latestObservations && (
+                  <div style={{ marginTop: 16, background: 'rgba(34, 197, 94, 0.06)', border: '1px solid rgba(34, 197, 94, 0.3)', borderRadius: 8, padding: '12px 14px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                      <span style={{ fontSize: '0.74rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#16a34a' }}>
+                        Última revisión docente {detailModal.latestEvaluatorName ? `(${detailModal.latestEvaluatorName})` : ''}
+                      </span>
+                      {detailModal.latestScore !== null && detailModal.latestScore !== undefined && (
+                        <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#16a34a' }}>
+                          Nota: {Number(detailModal.latestScore).toFixed(1)}
+                        </span>
+                      )}
+                    </div>
+                    <p style={{ fontSize: '0.88rem', color: 'var(--text-primary)', margin: 0, lineHeight: 1.5, whiteSpace: 'pre-line' }}>
+                      {detailModal.latestObservations}
+                    </p>
+                  </div>
+                )}
+
                 {detailModal.description?.startsWith('Carta:') && (
                   <div className="modal-link-row">
                     <span className="modal-info-key">Carta de presentación</span>
@@ -1253,7 +1402,7 @@ export function ProyectosPage() {
                     Exportar a PDF
                   </Button>
                 )}
-                {(!isLimitedUser || detailModal.isOwned || detailModal.myRole === 'autor') && (
+                {(!isStudent && (!isLimitedUser || detailModal.isOwned || detailModal.myRole === 'autor')) && (
                   <Button variant="ghost" icon={Pencil} onClick={() => { setDetailModal(null); setEditModal(detailModal); }}>
                     {isLimitedUser ? 'Gestionar integrantes' : 'Editar'}
                   </Button>
@@ -1320,8 +1469,15 @@ export function ProyectosPage() {
                             {item.userEmail && <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>({item.userEmail})</span>}
                           </div>
 
+                          {/* DESCRIPCIÓN U OBSERVACIONES DE LA REVISIÓN */}
+                          {item.description && (
+                            <div style={{ marginTop: '4px', marginBottom: '8px', fontSize: '0.88rem', color: 'var(--text-primary)', lineHeight: 1.5, background: item.changeType === 'REVISION' ? 'rgba(34, 197, 94, 0.08)' : 'transparent', padding: item.changeType === 'REVISION' ? '8px 12px' : 0, borderRadius: 6, borderLeft: item.changeType === 'REVISION' ? '3px solid #22c55e' : 'none' }}>
+                              {item.description}
+                            </div>
+                          )}
+
                           {/* VALOR ANTERIOR vs VALOR NUEVO */}
-                          {item.modifiedField && (item.oldValue || item.newValue) && (
+                          {item.modifiedField && item.modifiedField !== 'revision_evaluacion' && (item.oldValue || item.newValue) && (
                             <div style={{ marginTop: '8px', background: 'var(--bg-secondary)', padding: '12px 14px', borderRadius: '8px', fontSize: '0.86rem' }}>
                               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                                 <div style={{ background: 'rgba(224, 15, 56, 0.06)', borderLeft: '3px solid #E00F38', padding: '8px 10px', borderRadius: '4px' }}>
@@ -1356,6 +1512,105 @@ export function ProyectosPage() {
                   Cerrar
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── MODAL REVISIÓN Y CALIFICACIÓN DOCENTE ──────────── */}
+        {reviewModal && (
+          <div className="modal-backdrop" onClick={() => setReviewModal(null)}>
+            <div className="modal-box modal-box--md" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <div className="modal-header-text">
+                  <span className="modal-eyebrow">Evaluación y Seguimiento</span>
+                  <h2 className="modal-title">Revisar Proyecto: {reviewModal.title}</h2>
+                  <span className="modal-code">{reviewModal.code}</span>
+                </div>
+                <button className="modal-close" type="button" onClick={() => setReviewModal(null)}>
+                  <X size={18} />
+                </button>
+              </div>
+
+              <form onSubmit={handleSubmitReview}>
+                <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  {reviewError && (
+                    <div style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#dc2626', border: '1px solid #ef4444', padding: '10px 14px', borderRadius: '8px', fontSize: '0.85rem' }}>
+                      {reviewError}
+                    </div>
+                  )}
+
+                  {reviewSuccess && (
+                    <div style={{ background: 'rgba(34, 197, 94, 0.1)', color: '#16a34a', border: '1px solid #22c55e', padding: '10px 14px', borderRadius: '8px', fontSize: '0.85rem' }}>
+                      {reviewSuccess}
+                    </div>
+                  )}
+
+                  <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: 0 }}>
+                    Al actualizar el estado del proyecto, puedes registrar simultáneamente la calificación y las observaciones de la revisión. Quedarán registradas en la bitácora e historial de auditoría.
+                  </p>
+
+                  {/* ESTADO Y CALIFICACIÓN LADO A LADO */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 140px', gap: '14px', alignItems: 'flex-start' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-secondary)', marginBottom: 6 }}>
+                        Estado del proyecto *
+                      </label>
+                      <div className="filter-select-wrapper" style={{ width: '100%' }}>
+                        <select
+                          value={reviewData.statusId}
+                          onChange={(e) => setReviewData(p => ({ ...p, statusId: e.target.value }))}
+                          required
+                          style={{ width: '100%', height: '40px', borderRadius: 8, padding: '0 12px', border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '0.88rem' }}
+                        >
+                          <option value="">— Selecciona un estado —</option>
+                          {statuses.map(s => (
+                            <option key={s.status_id} value={s.status_id}>{s.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-secondary)', marginBottom: 6 }}>
+                        Calificación (0 - 5.0)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="0.0"
+                        max="5.0"
+                        placeholder="Ej. 4.5"
+                        value={reviewData.score}
+                        onChange={(e) => setReviewData(p => ({ ...p, score: e.target.value }))}
+                        style={{ width: '100%', height: '40px', borderRadius: 8, padding: '0 12px', border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '0.92rem', fontWeight: 600 }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* OBSERVACIONES */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-secondary)', marginBottom: 6 }}>
+                      Observaciones y retroalimentación docente
+                    </label>
+                    <textarea
+                      rows={4}
+                      placeholder="Escribe aquí las observaciones, recomendaciones, ajustes requeridos o retroalimentación general..."
+                      value={reviewData.observations}
+                      onChange={(e) => setReviewData(p => ({ ...p, observations: e.target.value }))}
+                      style={{ width: '100%', borderRadius: 8, padding: '10px 12px', border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '0.88rem', resize: 'vertical' }}
+                    />
+                  </div>
+                </div>
+
+                <div className="modal-footer">
+                  <Button variant="ghost" type="button" onClick={() => setReviewModal(null)}>
+                    Cancelar
+                  </Button>
+                  <Button variant="primary" type="submit" disabled={reviewSaving} icon={reviewSaving ? Loader2 : CheckCircle2}>
+                    {reviewSaving ? 'Guardando revisión...' : 'Guardar Revisión y Nota'}
+                  </Button>
+                </div>
+              </form>
             </div>
           </div>
         )}

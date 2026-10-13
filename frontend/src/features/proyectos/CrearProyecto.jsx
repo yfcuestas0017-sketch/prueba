@@ -35,6 +35,7 @@ function Avatar({ name, size = 32 }) {
 
 export default function CreateProjectModal({ statuses, modalities, lines, sublines, degreeOptions = [], onClose, onSaved, user }) {
   const isAdmin = user?.role?.toLowerCase() === 'administrador';
+  const isStudent = String(user?.role || '').toLowerCase().includes('estudiant');
 
   const [form, setForm] = useState({
     title: '',
@@ -63,8 +64,24 @@ export default function CreateProjectModal({ statuses, modalities, lines, sublin
   const userProgramId = user?.programId ?? user?.program_id ?? null;
   const userProgramName = String(user?.programName ?? user?.program_name ?? '').toLowerCase();
   const activeProgramId = (userProgramId && userProgramId !== 'all') ? String(userProgramId) : null;
-  const isPsicologia = activeProgramId === '2' || userProgramName.includes('psicolog');
-  const isSistemas = activeProgramId === '1' || userProgramName.includes('sistema');
+  const isUserPsicologia = activeProgramId === '2' || userProgramName.includes('psicolog');
+  const isUserSistemas = activeProgramId === '1' || userProgramName.includes('sistema');
+
+  const selectedLineObj = useMemo(() => {
+    return (lines || []).find(l => String(l.research_line_id) === String(form.lineId));
+  }, [lines, form.lineId]);
+
+  const isLinePsicologia = useMemo(() => {
+    if (!selectedLineObj) return false;
+    if (selectedLineObj.program_id !== undefined && selectedLineObj.program_id !== null) {
+      return String(selectedLineObj.program_id) === '2';
+    }
+    const name = (selectedLineObj.name || '').toLowerCase();
+    return [5, 6, 7].includes(selectedLineObj.research_line_id) || name.includes('psicolog');
+  }, [selectedLineObj]);
+
+  const isPsicologia = isUserPsicologia || isLinePsicologia;
+  const isSistemas = isUserSistemas && !isLinePsicologia;
 
   const filteredLines = useMemo(() => {
     const allLines = lines || [];
@@ -75,17 +92,14 @@ export default function CreateProjectModal({ statuses, modalities, lines, sublin
       if (activeProgramId && line.program_id !== undefined && line.program_id !== null) {
         return String(line.program_id) === activeProgramId;
       }
-      // 2. Si no trae program_id (fallback por ID o nombre del programa)
+      // 2. Si no trae program_id (fallback por ID o coincidencia)
       const name = (line.name || '').toLowerCase();
-      if (isPsicologia) {
+      if (isUserPsicologia) {
         return [5, 6, 7].includes(line.research_line_id) || name.includes('psicolog');
-      }
-      if (isSistemas) {
-        return [1, 2, 3, 4].includes(line.research_line_id) || (!name.includes('psicolog') && !name.includes('salud') && !name.includes('comunitaria'));
       }
       return true;
     });
-  }, [lines, userProgramId, isPsicologia, isSistemas]);
+  }, [lines, activeProgramId, isUserPsicologia]);
 
   const filteredSublines = useMemo(() => {
     if (!form.lineId) return [];
@@ -164,8 +178,13 @@ export default function CreateProjectModal({ statuses, modalities, lines, sublin
     e.preventDefault();
     if (!form.title.trim()) { setFormError('El título es obligatorio.'); return; }
     if (form.title.trim().length > 255) { setFormError('El título es demasiado largo (máximo 255 caracteres).'); return; }
-    if (!form.generalObjective.trim()) { setFormError('El objetivo general es obligatorio.'); return; }
-    if (!form.specificObjectives.trim()) { setFormError('Los objetivos específicos son obligatorios.'); return; }
+    
+    // En Psicología NO se exigen objetivos al registrar la propuesta
+    if (!isPsicologia) {
+      if (!form.generalObjective.trim()) { setFormError('El objetivo general es obligatorio.'); return; }
+      if (!form.specificObjectives.trim()) { setFormError('Los objetivos específicos son obligatorios.'); return; }
+    }
+
     if (!form.modalityId) { setFormError('Selecciona una modalidad.'); return; }
 
     setSaving(true);
@@ -175,9 +194,11 @@ export default function CreateProjectModal({ statuses, modalities, lines, sublin
       const payload = {
         title: form.title.trim(),
         code: form.code.trim() || null,
-        generalObjective: form.generalObjective.trim(),
-        specificObjectives: form.specificObjectives.trim(),
-        statusId: statuses?.[0]?.status_id || 1,
+        generalObjective: isPsicologia ? null : (form.generalObjective.trim() || null),
+        specificObjectives: isPsicologia ? null : (form.specificObjectives.trim() || null),
+        statusId: isStudent
+          ? statuses?.find((status) => String(status.name || '').trim().toLowerCase() === 'en revisión')?.status_id || null
+          : statuses?.[0]?.status_id || 1,
         modalityId: Number(form.modalityId) || null,
         lineId: form.lineId ? Number(form.lineId) : null,
         sublineId: form.sublineId ? Number(form.sublineId) : null,
@@ -225,7 +246,9 @@ export default function CreateProjectModal({ statuses, modalities, lines, sublin
               )}
 
               <form onSubmit={handleSave}>
-                <div className="epm-section-title">Información general y objetivos</div>
+                <div className="epm-section-title">
+                  {isPsicologia ? 'Información general de la propuesta' : 'Información general y objetivos'}
+                </div>
 
                 <div className="epm-grid2">
                   <div className="epm-field epm-span2">
@@ -238,31 +261,35 @@ export default function CreateProjectModal({ statuses, modalities, lines, sublin
                     />
                   </div>
 
-                  <div className="epm-field epm-span2">
-                    <label htmlFor="crear-proyecto-general-obj">Objetivo general *</label>
-                    <textarea
-                      id="crear-proyecto-general-obj"
-                      rows={3}
-                      value={form.generalObjective}
-                      onChange={e => setForm(p => ({ ...p, generalObjective: e.target.value }))}
-                      placeholder="Define el propósito principal de la investigación (inicia con un verbo en infinitivo)..."
-                      required
-                      style={{ width: '100%', resize: 'vertical', borderRadius: 8, padding: '8px 12px', border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '0.86rem' }}
-                    />
-                  </div>
+                  {!isPsicologia && (
+                    <>
+                      <div className="epm-field epm-span2">
+                        <label htmlFor="crear-proyecto-general-obj">Objetivo general *</label>
+                        <textarea
+                          id="crear-proyecto-general-obj"
+                          rows={3}
+                          value={form.generalObjective}
+                          onChange={e => setForm(p => ({ ...p, generalObjective: e.target.value }))}
+                          placeholder="Define el propósito principal de la investigación (inicia con un verbo en infinitivo)..."
+                          required={!isPsicologia}
+                          style={{ width: '100%', resize: 'vertical', borderRadius: 8, padding: '8px 12px', border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '0.86rem' }}
+                        />
+                      </div>
 
-                  <div className="epm-field epm-span2">
-                    <label htmlFor="crear-proyecto-specific-objs">Objetivos específicos *</label>
-                    <textarea
-                      id="crear-proyecto-specific-objs"
-                      rows={4}
-                      value={form.specificObjectives}
-                      onChange={e => setForm(p => ({ ...p, specificObjectives: e.target.value }))}
-                      placeholder="1. Diagnosticar el estado actual...&#10;2. Diseñar el modelo...&#10;3. Validar e implementar..."
-                      required
-                      style={{ width: '100%', resize: 'vertical', borderRadius: 8, padding: '8px 12px', border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '0.86rem' }}
-                    />
-                  </div>
+                      <div className="epm-field epm-span2">
+                        <label htmlFor="crear-proyecto-specific-objs">Objetivos específicos *</label>
+                        <textarea
+                          id="crear-proyecto-specific-objs"
+                          rows={4}
+                          value={form.specificObjectives}
+                          onChange={e => setForm(p => ({ ...p, specificObjectives: e.target.value }))}
+                          placeholder="1. Diagnosticar el estado actual...&#10;2. Diseñar el modelo...&#10;3. Validar e implementar..."
+                          required={!isPsicologia}
+                          style={{ width: '100%', resize: 'vertical', borderRadius: 8, padding: '8px 12px', border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '0.86rem' }}
+                        />
+                      </div>
+                    </>
+                  )}
 
                   <div className="epm-field">
                     <label htmlFor="crear-proyecto-campo-2">Línea de investigación</label>

@@ -30,7 +30,8 @@ export const getTeachers = async (req, res) => {
       LEFT JOIN public.roles r ON ur.role_id = r.role_id
       LEFT JOIN public.programs pr ON u.program_id = pr.program_id
       WHERE (
-        LOWER(COALESCE(r.name, '')) IN ('docente', 'profesor')
+        LOWER(COALESCE(r.name, '')) LIKE '%docent%'
+        OR LOWER(COALESCE(r.name, '')) LIKE '%profesor%'
         OR u.user_id ILIKE 'doc%'
         OR u.email ILIKE '%docente%'
       )

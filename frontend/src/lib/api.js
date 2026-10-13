@@ -88,6 +88,24 @@ export const api = {
     body: JSON.stringify({ semesterId }),
   }),
   getAcademicSettings: (userId) => request(`/admin/academic-settings?userId=${encodeURIComponent(userId)}`),
+  getAdminStudents: (filters = {}) => {
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '' && value !== 'all') {
+        params.append(key, value);
+      }
+    });
+    const query = params.toString();
+    return request(`/admin/students${query ? `?${query}` : ''}`);
+  },
+  importAdminStudents: (students) => request('/admin/students/import', {
+    method: 'POST',
+    body: JSON.stringify({ students }),
+  }),
+  importAdminTeachers: (teachers) => request('/admin/teachers/import', {
+    method: 'POST',
+    body: JSON.stringify({ teachers }),
+  }),
   updateSemesterDates: (userId, semesterId, startDate, endDate) => request(`/admin/semesters/${semesterId}/dates`, {
     method: 'PUT',
     body: JSON.stringify({ userId, startDate, endDate }),
@@ -132,6 +150,11 @@ export const api = {
     const query = userId ? `?userId=${encodeURIComponent(userId)}` : '';
     return request(`/projects/${id}/history${query}`);
   },
+
+  reviewProject: (id, reviewData) => request(`/projects/${id}/reviews`, {
+    method: 'POST',
+    body: JSON.stringify(reviewData),
+  }),
 
   // Reports
   getDetailedReportProjects: (filters = {}) => {

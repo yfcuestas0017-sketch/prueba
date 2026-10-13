@@ -29,6 +29,8 @@ const PROJECT_SELECT = `
     p.general_objective,
     p.specific_objectives,
     p.status_id,
+    p.process_stage,
+    p.process_phase,
     p.modality_id,
     p.research_line_id,
     p.research_subline_id,
@@ -37,13 +39,26 @@ const PROJECT_SELECT = `
     m.name as modality_name,
     rl.name as line_name,
     rsl.name as subline_name,
-    dopt.name as degree_option_name
+    dopt.name as degree_option_name,
+    pg.score as latest_score,
+    pg.observations as latest_observations,
+    pg.created_at as latest_grade_date,
+    pg_u.full_name as latest_evaluator_name
   FROM public.projects p
   LEFT JOIN public.statuses s ON p.status_id = s.status_id
   LEFT JOIN public.modalities m ON p.modality_id = m.modality_id
   LEFT JOIN public.research_lines rl ON p.research_line_id = rl.research_line_id
   LEFT JOIN public.research_sublines rsl ON p.research_subline_id = rsl.research_subline_id
   LEFT JOIN public.degree_options dopt ON p.degree_option_id = dopt.degree_option_id
+  LEFT JOIN LATERAL (
+    SELECT grade_id, score, observations, evaluator_id, created_at
+    FROM public.project_grades
+    WHERE project_id = p.project_id
+      AND process_phase IS NOT DISTINCT FROM p.process_phase
+    ORDER BY created_at DESC, grade_id DESC
+    LIMIT 1
+  ) pg ON true
+  LEFT JOIN public.users pg_u ON pg_u.user_id = pg.evaluator_id
 `;
 
 /** Vinculación persona ↔ proyecto, con programa, facultad y semestre de la persona. */

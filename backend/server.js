@@ -10,6 +10,8 @@ import apiRouter from './routes/index.js';
 import { setupProjectBankTable } from './migrations/create_project_bank.js';
 import { setupProjectBankHistoriesTable } from './migrations/create_project_bank_histories.js';
 import { setupProjectObjectivesColumns } from './migrations/add_project_objectives.js';
+import { setupProjectGradesTable } from './migrations/create_project_grades.js';
+import { setupProjectLifecycle } from './migrations/create_project_lifecycle.js';
 import { setupPasswordResetsTable } from './migrations/create_password_resets.js';
 import { verifyEmailTransport } from './services/email.service.js';
 import { syncAssignedProjectBankIdeas } from './controllers/projectBank.controller.js';
@@ -110,8 +112,8 @@ app.use('/api', apiRouter);
  */
 function verificarConfiguracion() {
   getJwtSecret();
-  if (!process.env.PGPASSWORD) {
-    throw new Error('PGPASSWORD no está definida. Copia .env.example como .env.local y rellénala.');
+  if (!process.env.DATABASE_URL && !process.env.PGPASSWORD) {
+    throw new Error('Configuración de base de datos incompleta: define DATABASE_URL o PGPASSWORD.');
   }
 }
 
@@ -159,6 +161,8 @@ async function initMigrations() {
   await setupProjectBankTable();
   await setupProjectBankHistoriesTable();
   await setupProjectObjectivesColumns();
+  await setupProjectGradesTable();
+  await setupProjectLifecycle();
   await setupPasswordResetsTable();
   await verifyEmailTransport();
   await registerAdminDbCrudRoutes(app, pool);

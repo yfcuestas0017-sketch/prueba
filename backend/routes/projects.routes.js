@@ -9,7 +9,8 @@ import {
   getResearchProgress,
   createResearchProgress,
   getResearchDocuments,
-  createResearchDocument
+  createResearchDocument,
+  reviewProject
 } from '../controllers/projects.controller.js';
 
 const router = Router();
@@ -20,6 +21,7 @@ router.put('/projects/:id', updateProject);
 router.put('/projects/:id/participants', updateProjectParticipants);
 router.delete('/projects/:id', deleteProject);
 router.get('/projects/:id/history', getProjectHistory);
+router.post('/projects/:id/reviews', reviewProject);
 
 router.get('/projects/:id/research-progress', getResearchProgress);
 router.post('/projects/:id/research-progress', createResearchProgress);

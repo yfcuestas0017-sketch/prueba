@@ -15,13 +15,14 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
-import { userIsGeneralAdmin, userIsAnyAdmin } from '../../lib/roles';
+import { userIsGeneralAdmin, userIsAnyAdmin, userIsDocente } from '../../lib/roles';
 import './Sidebar.css';
 
 const NAV_ITEMS = [
   { to: '/dashboard', label: 'Inicio', icon: LayoutDashboard },
   { to: '/proyectos', label: 'Gestion de Proyectos', icon: FolderOpen },
   { to: '/subir', label: 'Gestion de Docente', icon: Upload },
+  { to: '/estudiantes', label: 'Gestion de Estudiantes', icon: Users, adminOnly: true },
   { to: '/facultades', label: 'Banco de Proyectos', icon: BookOpen },
 ];
 
@@ -30,7 +31,7 @@ const NAV_BOTTOM = [
   // de Programa (adminOnly). AdminGeneralPage.jsx muestra una vista
   // reducida (solo líneas y sublíneas de su programa) a este último.
   { to: '/administracion-general', label: 'Administración General', icon: ShieldCheck, adminOnly: true },
-  { to: '/reportes', label: 'Generar reportes', icon: FileSpreadsheet, adminOnly: true },
+  { to: '/reportes', label: 'Generar reportes', icon: FileSpreadsheet, reportsAccess: true },
   { to: '/usuarios', label: 'Usuarios', icon: Users, adminGeneralOnly: true },
   { to: '/ajustes', label: 'Ajustes', icon: Settings },
 ];
@@ -47,6 +48,8 @@ export default function Sidebar() {
 
   const isAdminGeneral = userIsGeneralAdmin(user);
   const canAccessAdmin = userIsAnyAdmin(user);
+  const isDocente = userIsDocente(user);
+  const canAccessReports = canAccessAdmin || isDocente;
   const isSidebarExpanded = mobileSidebarOpen || !sidebarCollapsed;
 
   const handleLogout = async () => {
@@ -88,7 +91,13 @@ export default function Sidebar() {
         }}
       >
         <div className="sidebar-logo">
-          <img src="/Escudos.png" alt="Logo UCESMAG" className="sidebar-logo-img" />
+          <img
+            src="/Escudos.png"
+            alt="Logo UCESMAG"
+            className="sidebar-logo-img"
+            width="60"
+            height="60"
+          />
 
           {isSidebarExpanded && (
             <div className="sidebar-logo-text">
@@ -118,6 +127,7 @@ export default function Sidebar() {
 
           {NAV_ITEMS.filter(item => {
             if (item.to === '/subir' && ['estudiante', 'docente'].includes(user?.role)) return false;
+            if (item.adminOnly && !canAccessAdmin) return false;
             return true;
           }).map(({ to, label, icon: Icon }) => (
             <NavLink
@@ -141,6 +151,7 @@ export default function Sidebar() {
           {NAV_BOTTOM.filter((item) => {
             if (item.adminGeneralOnly && !isAdminGeneral) return false;
             if (item.adminOnly && !canAccessAdmin) return false;
+            if (item.reportsAccess && !canAccessReports) return false;
             return true;
           }).map(
             ({ to, label, icon: Icon }) => (

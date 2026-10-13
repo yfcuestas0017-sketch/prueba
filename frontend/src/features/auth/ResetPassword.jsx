@@ -83,7 +83,13 @@ export default function ResetPassword() {
         <div className="reset-left-backdrop" />
         <div className="reset-left-content">
           <div className="reset-logo-container">
-            <img src="/Escudos.png" alt="Logo Universidad CESMAG" className="reset-logo-img" />
+            <img
+              src="/Escudos.png"
+              alt="Logo Universidad CESMAG"
+              className="reset-logo-img"
+              width="150"
+              height="150"
+            />
           </div>
 
           <div className="reset-badge-pill">
