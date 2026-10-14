@@ -280,17 +280,23 @@
 }
 
 .login-input-pass {
-  padding-right: 44px;
+  padding-right: 48px;
 }
 
 .login-pass-toggle {
   position: absolute;
-  right: 12px;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
   background: none;
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  padding: 6px;
+  padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -307,22 +313,23 @@
 .login-row-options {
   display: flex;
   justify-content: flex-end;
-  margin-top: -6px;
-  margin-bottom: 2px;
+  margin-top: 2px;
+  margin-bottom: 6px;
 }
 
 .login-forgot-link {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-height: 44px;
   background: none;
   border: none;
   color: var(--text-secondary);
-  font-size: 0.82rem;
+  font-size: 0.84rem;
   font-weight: 500;
   cursor: pointer;
-  padding: 4px 6px;
-  border-radius: 4px;
+  padding: 8px 12px;
+  border-radius: 6px;
   transition: color var(--transition-fast), background-color var(--transition-fast);
 }
 
@@ -333,8 +340,9 @@
 
 /* Botón de Envío */
 .login-submit-btn {
-  margin-top: 6px;
-  height: 46px;
+  margin-top: 4px;
+  min-height: 48px;
+  height: 48px;
   font-weight: 600;
   letter-spacing: 0.01em;
   box-shadow: 0 4px 14px color-mix(in srgb, var(--accent-primary) 30%, transparent);

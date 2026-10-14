@@ -81,14 +81,18 @@ export default function Login() {
         <div className="login-left-backdrop" />
         <div className="login-left-content">
           <div className="login-logo-container">
-            <img
-              src="/Escudos.png"
-              alt="Logo Universidad CESMAG"
-              className="login-logo-img"
-              width="150"
-              height="150"
-              fetchpriority="high"
-            />
+            <picture>
+              <source srcSet="/Escudos.webp" type="image/webp" />
+              <img
+                src="/Escudos.png"
+                alt="Logo Universidad CESMAG"
+                className="login-logo-img"
+                width="150"
+                height="150"
+                fetchpriority="high"
+                decoding="async"
+              />
+            </picture>
           </div>
 
           <div className="login-badge-pill">
