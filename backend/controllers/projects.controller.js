@@ -8,6 +8,7 @@ import { buildProjectBase } from '../services/projects.mapper.js';
 import {
   getInitialProjectLifecycle,
   getProjectReviewTransition,
+  isFinalProjectStatus,
 } from '../services/project-lifecycle.js';
 
 const STUDENT_PROJECT_BLOCK_MESSAGE = 'Este estudiante ya está vinculado a un proyecto de investigación activo y no puede registrar un nuevo proyecto.';
@@ -212,7 +213,12 @@ export const getProjects = async (req, res) => {
   const parsedProgramId = programId ? parseInt(programId, 10) : null;
 
   try {
-    const { projectRows, participantsByProject } = await findProjectsWithParticipants(pool);
+    const [projectsData, userContext] = await Promise.all([
+      findProjectsWithParticipants(pool),
+      getUserContext(pool, actorId(req)),
+    ]);
+    const { projectRows, participantsByProject } = projectsData;
+    const canViewPhaseGrades = Boolean(userContext?.is_program_admin || userContext?.is_general_admin);
 
     let enrichedProjects = projectRows.map((p) => {
       const participants = participantsByProject[p.project_id] || [];
@@ -220,6 +226,7 @@ export const getProjects = async (req, res) => {
         ...buildProjectBase(p, participants),
         degreeOptionId: p.degree_option_id,
         degreeOptionName: p.degree_option_name || null,
+        ...(canViewPhaseGrades ? { phaseGrades: p.phase_grades || [] } : {}),
         user_projects: participants,
       };
     });
@@ -423,12 +430,16 @@ export const updateProject = async (req, res) => {
       LEFT JOIN public.research_sublines rsl ON p.research_subline_id = rsl.research_subline_id
       LEFT JOIN public.degree_options dopt ON p.degree_option_id = dopt.degree_option_id
       WHERE p.project_id = $1
+      FOR UPDATE OF p
     `, [projectId]);
 
     if (currentRes.rows.length === 0) {
       throw new HttpError(404, 'Proyecto no encontrado.');
     }
     const oldProj = currentRes.rows[0];
+    if (isFinalProjectStatus(oldProj.status_name)) {
+      throw new HttpError(409, 'El proyecto está finalizado y no se puede editar.');
+    }
 
     const finalStatusId = statusId !== undefined ? (statusId ? parseInt(statusId, 10) : null) : oldProj.status_id;
     const finalModalityId = modalityId !== undefined ? (modalityId ? parseInt(modalityId, 10) : null) : oldProj.modality_id;
@@ -484,10 +495,6 @@ export const updateProject = async (req, res) => {
       );
     };
 
-    if (title && title.trim() !== (oldProj.title || '').trim()) {
-      await logHistory(`Modificación de título: "${oldProj.title}" → "${title.trim()}"`, 'title', oldProj.title, title.trim());
-    }
-
     if (code !== undefined && (code || '').trim() !== (oldProj.code || '').trim()) {
       await logHistory(`Modificación de código: "${oldProj.code || 'Sin código'}" → "${code ? code.trim() : 'Sin código'}"`, 'code', oldProj.code || 'Sin código', code ? code.trim() : 'Sin código');
     }
@@ -501,9 +508,17 @@ export const updateProject = async (req, res) => {
     }
 
     if (statusId !== undefined && finalStatusId !== oldProj.status_id) {
-      const sRes = await client.query('SELECT name FROM public.statuses WHERE status_id = $1', [finalStatusId]);
-      const newStatusName = sRes.rows[0]?.name || String(finalStatusId);
-      await logHistory(`Actualización de estado: ${oldProj.status_name || 'Sin estado'} → ${newStatusName}`, 'status_id', oldProj.status_name, newStatusName);
+      const statusRes = await client.query(
+        'SELECT name FROM public.statuses WHERE status_id = $1',
+        [finalStatusId],
+      );
+      const newStatusName = statusRes.rows[0]?.name || String(finalStatusId);
+      await logHistory(
+        `Actualización de estado: ${oldProj.status_name || 'Sin estado'} → ${newStatusName}`,
+        'status_id',
+        oldProj.status_name || 'Sin estado',
+        newStatusName,
+      );
     }
 
     if (modalityId !== undefined && finalModalityId !== oldProj.modality_id) {
@@ -573,9 +588,19 @@ export const updateProjectParticipants = async (req, res) => {
         throw new HttpError(403, 'Solo los administradores o el estudiante autor del proyecto pueden modificar los integrantes.');
       }
 
-      const projRes = await client.query('SELECT project_id, title FROM public.projects WHERE project_id = $1', [projectId]);
+      const projRes = await client.query(
+        `SELECT p.project_id, p.title, s.name AS status_name
+         FROM public.projects p
+         LEFT JOIN public.statuses s ON s.status_id = p.status_id
+         WHERE p.project_id = $1
+         FOR UPDATE OF p`,
+        [projectId],
+      );
       if (projRes.rows.length === 0) {
         throw new HttpError(404, 'Proyecto no encontrado.');
+      }
+      if (isFinalProjectStatus(projRes.rows[0].status_name)) {
+        throw new HttpError(409, 'El proyecto está finalizado y no se pueden editar sus integrantes.');
       }
 
       if (isAdmin) {
@@ -720,10 +745,22 @@ export const getProjectHistory = async (req, res) => {
     let query = `
       SELECT 
         h.history_id, 
-        h.description, 
+        CASE
+          WHEN h.description = 'Status update' AND h.modified_field = 'status_id'
+            THEN 'Actualización de estado'
+          ELSE h.description
+        END AS description,
         h.modified_field, 
-        h.old_value, 
-        h.new_value, 
+        CASE
+          WHEN h.modified_field = 'status_id' AND h.old_value ~ '^[0-9]+$'
+            THEN COALESCE(old_status.name, h.old_value)
+          ELSE h.old_value
+        END AS old_value,
+        CASE
+          WHEN h.modified_field = 'status_id' AND h.new_value ~ '^[0-9]+$'
+            THEN COALESCE(new_status.name, h.new_value)
+          ELSE h.new_value
+        END AS new_value,
         h.change_type, 
         h.changed_at,
         h.user_id,
@@ -735,10 +772,32 @@ export const getProjectHistory = async (req, res) => {
       FROM public.histories h
       LEFT JOIN public.users u ON u.user_id::text = h.user_id::text
       LEFT JOIN public.programs p ON p.program_id = u.program_id
-      LEFT JOIN public.user_roles ur ON ur.user_id::text = u.user_id::text
-      LEFT JOIN public.roles r ON r.role_id = ur.role_id
-      JOIN public.project_histories ph ON ph.history_id = h.history_id
-      WHERE ph.project_id = $1
+      LEFT JOIN LATERAL (
+        SELECT role_catalog.name
+        FROM public.user_roles user_role
+        JOIN public.roles role_catalog ON role_catalog.role_id = user_role.role_id
+        WHERE user_role.user_id::text = u.user_id::text
+        ORDER BY CASE
+          WHEN LOWER(role_catalog.name) LIKE '%administrador general%'
+            OR LOWER(role_catalog.name) LIKE '%admin general%' THEN 1
+          WHEN LOWER(role_catalog.name) LIKE '%administrador%'
+            OR LOWER(role_catalog.name) = 'admin' THEN 2
+          WHEN LOWER(role_catalog.name) LIKE '%docente%'
+            OR LOWER(role_catalog.name) LIKE '%profesor%' THEN 3
+          ELSE 4
+        END, role_catalog.role_id
+        LIMIT 1
+      ) r ON true
+      LEFT JOIN public.statuses old_status
+        ON old_status.status_id = CASE WHEN h.old_value ~ '^[0-9]+$' THEN h.old_value::integer END
+      LEFT JOIN public.statuses new_status
+        ON new_status.status_id = CASE WHEN h.new_value ~ '^[0-9]+$' THEN h.new_value::integer END
+      WHERE EXISTS (
+        SELECT 1
+        FROM public.project_histories ph
+        WHERE ph.history_id = h.history_id
+          AND ph.project_id = $1
+      )
     `;
     const params = [projectId];
 
@@ -802,6 +861,9 @@ export const reviewProject = async (req, res) => {
         throw new HttpError(404, 'Proyecto no encontrado.');
       }
       const oldProj = currentRes.rows[0];
+      if (isFinalProjectStatus(oldProj.status_name)) {
+        throw new HttpError(409, 'El proyecto está finalizado y no se puede revisar.');
+      }
 
       let numericScore = null;
       if (score !== undefined && score !== null && score !== '') {

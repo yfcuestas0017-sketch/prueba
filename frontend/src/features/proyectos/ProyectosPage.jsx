@@ -27,8 +27,11 @@ import {
   isRejectedProjectStatus,
 } from './projectStatus';
 import api from '../../lib/api';
+import { userIsAnyAdmin } from '../../lib/roles';
 import { generatePrefix } from './generatePrefix';
 import './ProyectosPage.css';
+
+const PHASE_LABELS = ['', 'I', 'II', 'III'];
 
 export function ProyectosPage() {
   const { user } = useAuth();
@@ -37,6 +40,7 @@ export function ProyectosPage() {
   const isStudent = user?.role?.toLowerCase() === 'estudiante';
   const isDocente = user?.role?.toLowerCase() === 'docente';
   const isLimitedUser = isStudent || isDocente;
+  const isProjectAdmin = userIsAnyAdmin(user);
 
   const userProgramId = user?.programId ?? null;
   const userProgramName = user?.programName || '';
@@ -333,6 +337,10 @@ export function ProyectosPage() {
           latestObservations: row.latestObservations || row.latest_observations || null,
           latestGradeDate: row.latestGradeDate || row.latest_grade_date || null,
           latestEvaluatorName: row.latestEvaluatorName || row.latest_evaluator_name || null,
+          processStage: row.processStage || row.process_stage || null,
+          processPhase: row.processPhase ?? row.process_phase ?? null,
+          phaseGrades: row.phaseGrades || row.phase_grades || [],
+          isFinalized: isFinalProjectStatus(row.status),
           isOwned: (row.user_projects || []).some(up => String(up.user_id) === String(user?.id)),
           coauthors: row.authors || [],
           authorsList: row.authors || [],
@@ -1176,6 +1184,7 @@ export function ProyectosPage() {
                 <th>Título / Línea</th>
                 <th>Estado</th>
                 <th>Calificación</th>
+                {isProjectAdmin && <th>Avance por investigación</th>}
                 <th>Modalidad</th>
                 <th>Autores</th>
                 <th>Año</th>
@@ -1184,7 +1193,7 @@ export function ProyectosPage() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan="8" className="table-empty">Cargando proyectos...</td></tr>
+                <tr><td colSpan={isProjectAdmin ? 9 : 8} className="table-empty">Cargando proyectos...</td></tr>
               ) : filteredProjects.length > 0 ? (
                 filteredProjects.map((project) => (
                   <tr key={project.id} className="table-row">
@@ -1208,6 +1217,31 @@ export function ProyectosPage() {
                         <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Sin calificar</span>
                       )}
                     </td>
+                    {isProjectAdmin && (
+                      <td data-label="Avance por investigación">
+                        <div className="project-phase-summary">
+                          <strong>
+                            {project.processStage === 'investigacion' && project.processPhase
+                              ? `${project.status || 'En curso'} · Investigación ${PHASE_LABELS[project.processPhase]}`
+                              : project.processStage === 'propuesta'
+                                ? `Propuesta · ${project.status || 'Sin estado'}`
+                                : project.status || 'Fase no registrada'}
+                          </strong>
+                          {project.processStage === 'investigacion' && project.processPhase
+                            ? project.phaseGrades
+                              .filter(grade => Number(grade.phase) > 0 && Number(grade.phase) < Number(project.processPhase))
+                              .map(grade => (
+                                <span key={grade.id}>
+                                  {grade.status || 'Evaluación registrada'} en Investigación {PHASE_LABELS[grade.phase]}
+                                  {grade.score !== null && grade.score !== undefined
+                                    ? ` · ${Number(grade.score).toFixed(1)} / 5.0`
+                                    : ' · Sin nota'}
+                                </span>
+                              ))
+                            : null}
+                        </div>
+                      </td>
+                    )}
                     <td data-label="Modalidad">{project.modality}</td>
                     <td className="project-meta" data-label="Autores">
                       {project.authorsArray.map((author, i) => (
@@ -1224,7 +1258,7 @@ export function ProyectosPage() {
                         >
                           Ver
                         </Button>
-                        {(!isStudent) && (
+                        {(!isStudent && !project.isFinalized) && (
                           <Button
                             variant="ghost"
                             size="sm"
@@ -1236,7 +1270,7 @@ export function ProyectosPage() {
                             Revisar
                           </Button>
                         )}
-                        {(!isStudent && (!isLimitedUser || project.isOwned || project.myRole === 'autor')) && (
+                        {(!isStudent && !project.isFinalized && (!isLimitedUser || project.isOwned || project.myRole === 'autor')) && (
                           <Button variant="ghost" size="sm" onClick={() => setEditModal(project)}>
                             {isLimitedUser ? 'Gestionar' : 'Editar'}
                           </Button>
@@ -1255,7 +1289,7 @@ export function ProyectosPage() {
                   </tr>
                 ))
               ) : (
-                <tr><td colSpan="8" className="table-empty">No hay proyectos que coincidan con los filtros.</td></tr>
+                <tr><td colSpan={isProjectAdmin ? 9 : 8} className="table-empty">No hay proyectos que coincidan con los filtros.</td></tr>
               )}
             </tbody>
           </table>
@@ -1402,7 +1436,7 @@ export function ProyectosPage() {
                     Exportar a PDF
                   </Button>
                 )}
-                {(!isStudent && (!isLimitedUser || detailModal.isOwned || detailModal.myRole === 'autor')) && (
+                {(!isStudent && !isFinalProjectStatus(detailModal.status) && (!isLimitedUser || detailModal.isOwned || detailModal.myRole === 'autor')) && (
                   <Button variant="ghost" icon={Pencil} onClick={() => { setDetailModal(null); setEditModal(detailModal); }}>
                     {isLimitedUser ? 'Gestionar integrantes' : 'Editar'}
                   </Button>

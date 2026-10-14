@@ -33,11 +33,14 @@ export default function EditProjectModal({ project, statuses, modalities, lines,
   const isTeacher = roleLower.includes('docente');
   const isAdvisor = (project.advisorsList || []).some(a => String(a.id) === String(user?.id)) || project.myRole === 'asesor';
   const isJuror = (project.jurorsList || []).some(j => String(j.id) === String(user?.id)) || project.myRole === 'jurado';
-  const canEvaluate = isAdmin || isTeacher || isAdvisor || isJuror;
+  const isFinalized = ['finalizado', 'terminado', 'completado', 'sustentado'].includes(
+    String(project.statusName || project.status || '').trim().toLowerCase(),
+  );
+  const canEvaluate = !isFinalized && (isAdmin || isTeacher || isAdvisor || isJuror);
   const isApprovedOrFinished = ['finalizado', 'terminado', 'completado', 'aprobado', 'sustentado'].some(w => String(project.statusName || project.status || '').toLowerCase().includes(w));
-  const canEditProject = (isAdmin || isAdvisor) && (!isApprovedOrFinished || isAdmin);
+  const canEditProject = !isFinalized && (isAdmin || isAdvisor) && (!isApprovedOrFinished || isAdmin);
   const isOwnerAuthor = (project.isOwned || project.myRole === 'autor') && !isAdmin && !isAdvisor;
-  const canManageTeam = isAdmin || (isOwnerAuthor && !isApprovedOrFinished);
+  const canManageTeam = !isFinalized && (isAdmin || (isOwnerAuthor && !isApprovedOrFinished));
 
   const [form, setForm] = useState({
     title: project.title || '',

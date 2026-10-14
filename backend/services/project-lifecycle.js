@@ -3,6 +3,12 @@ const EXPECTED_SEMESTER_BY_PHASE = new Map([
   [2, 10],
 ]);
 
+const FINAL_PROJECT_STATUSES = new Set(['finalizado', 'terminado', 'completado', 'sustentado']);
+
+export function isFinalProjectStatus(statusName) {
+  return FINAL_PROJECT_STATUSES.has(String(statusName || '').trim().toLowerCase());
+}
+
 export function getInitialProjectLifecycle(isStudentProposal) {
   return isStudentProposal
     ? { stage: 'propuesta', phase: null, statusName: 'En revisión' }

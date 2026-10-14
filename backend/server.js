@@ -12,6 +12,7 @@ import { setupProjectBankHistoriesTable } from './migrations/create_project_bank
 import { setupProjectObjectivesColumns } from './migrations/add_project_objectives.js';
 import { setupProjectGradesTable } from './migrations/create_project_grades.js';
 import { setupProjectLifecycle } from './migrations/create_project_lifecycle.js';
+import { setupProjectAuditTrigger } from './migrations/create_project_audit_trigger.js';
 import { setupPasswordResetsTable } from './migrations/create_password_resets.js';
 import { verifyEmailTransport } from './services/email.service.js';
 import { syncAssignedProjectBankIdeas } from './controllers/projectBank.controller.js';
@@ -163,6 +164,7 @@ async function initMigrations() {
   await setupProjectObjectivesColumns();
   await setupProjectGradesTable();
   await setupProjectLifecycle();
+  await setupProjectAuditTrigger();
   await setupPasswordResetsTable();
   await verifyEmailTransport();
   await registerAdminDbCrudRoutes(app, pool);

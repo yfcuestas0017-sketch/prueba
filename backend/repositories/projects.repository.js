@@ -43,7 +43,8 @@ const PROJECT_SELECT = `
     pg.score as latest_score,
     pg.observations as latest_observations,
     pg.created_at as latest_grade_date,
-    pg_u.full_name as latest_evaluator_name
+    pg_u.full_name as latest_evaluator_name,
+    phase_history.phase_grades
   FROM public.projects p
   LEFT JOIN public.statuses s ON p.status_id = s.status_id
   LEFT JOIN public.modalities m ON p.modality_id = m.modality_id
@@ -59,6 +60,28 @@ const PROJECT_SELECT = `
     LIMIT 1
   ) pg ON true
   LEFT JOIN public.users pg_u ON pg_u.user_id = pg.evaluator_id
+  LEFT JOIN LATERAL (
+    SELECT json_agg(
+      json_build_object(
+        'id', phase_grade.grade_id,
+        'phase', phase_grade.process_phase,
+        'score', phase_grade.score,
+        'status', grade_status.name
+      )
+      ORDER BY phase_grade.process_phase NULLS FIRST
+    ) AS phase_grades
+    FROM (
+      SELECT DISTINCT ON (g.process_phase)
+        g.grade_id,
+        g.process_phase,
+        g.score,
+        g.status_id
+      FROM public.project_grades g
+      WHERE g.project_id = p.project_id
+      ORDER BY g.process_phase NULLS FIRST, g.created_at DESC, g.grade_id DESC
+    ) phase_grade
+    LEFT JOIN public.statuses grade_status ON grade_status.status_id = phase_grade.status_id
+  ) phase_history ON true
 `;
 
 /** Vinculación persona ↔ proyecto, con programa, facultad y semestre de la persona. */

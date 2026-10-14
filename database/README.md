@@ -25,6 +25,7 @@ cronológico por el prefijo de fecha del nombre.
 | `20260825_project_history_actor.sql` | Autor del cambio en el historial de proyectos |
 | `20260904_project_bank_and_histories.sql` | Banco de proyectos e historiales |
 | `20260910_fix_sequences_and_degree_program_scope.sql` | Secuencias y alcance de programa |
+| `20261013_fix_project_audit_trigger.sql` | Conserva el historial de títulos y estados legibles; elimina los eventos automáticos antiguos con IDs de estado |
 
 ## Advertencia sobre la última migración
 

@@ -4,7 +4,15 @@ import {
   getApprovedPhaseTransition,
   getInitialProjectLifecycle,
   getProjectReviewTransition,
+  isFinalProjectStatus,
 } from '../services/project-lifecycle.js';
+
+test('recognizes finalized project statuses without matching unrelated names', () => {
+  assert.equal(isFinalProjectStatus('Finalizado'), true);
+  assert.equal(isFinalProjectStatus('  TERMINADO '), true);
+  assert.equal(isFinalProjectStatus('En curso'), false);
+  assert.equal(isFinalProjectStatus(null), false);
+});
 
 test('student proposal starts in review and has no research phase', () => {
   assert.deepEqual(getInitialProjectLifecycle(true), {
