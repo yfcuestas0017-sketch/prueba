@@ -49,6 +49,7 @@ export function signSessionToken(user) {
       roleId: user.roleId ?? null,
       programId: user.programId ?? null,
       permissions: Array.isArray(user.permissions) ? user.permissions : [],
+      mustChangePassword: Boolean(user.mustChangePassword),
     },
     getJwtSecret(),
     { expiresIn: EXPIRES_IN, issuer: 'gradohub' },

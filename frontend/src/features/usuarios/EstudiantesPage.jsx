@@ -406,17 +406,17 @@ export function EstudiantesPage() {
               <thead><tr><th>Estudiante</th><th>Correo</th><th>Semestre</th><th>Proyectos</th><th>Cuenta</th></tr></thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan="5" className="students-empty">Cargando estudiantes…</td></tr>
+                  <tr className="students-table-message-row"><td colSpan="5" className="students-empty">Cargando estudiantes…</td></tr>
                 ) : visibleStudents.length ? visibleStudents.map((student) => (
                   <tr key={student.user_id}>
                     <td><div className="students-person"><span>{student.full_name?.charAt(0)?.toUpperCase() || 'E'}</span><strong>{student.full_name}</strong></div></td>
-                    <td>{student.email}</td>
-                    <td>{student.semester_number ? <span className="students-semester">{student.semester_number}° semestre</span> : <span className="students-muted">Sin semestre</span>}</td>
-                    <td>{student.project_count || 0}</td>
-                    <td><span className={`students-account${student.is_active ? '' : ' students-account--inactive'}`}>{student.is_active ? 'Activa' : 'Inactiva'}</span></td>
+                    <td data-label="Correo">{student.email}</td>
+                    <td data-label="Semestre">{student.semester_number ? <span className="students-semester">{student.semester_number}° semestre</span> : <span className="students-muted">Sin semestre</span>}</td>
+                    <td data-label="Proyectos">{student.project_count || 0}</td>
+                    <td data-label="Cuenta"><span className={`students-account${student.is_active ? '' : ' students-account--inactive'}`}>{student.is_active ? 'Activa' : 'Inactiva'}</span></td>
                   </tr>
                 )) : (
-                  <tr><td colSpan="5" className="students-empty">{programId ? 'No hay estudiantes que coincidan con este filtro.' : 'Selecciona un programa para cargar estudiantes.'}</td></tr>
+                  <tr className="students-table-message-row"><td colSpan="5" className="students-empty">{programId ? 'No hay estudiantes que coincidan con este filtro.' : 'Selecciona un programa para cargar estudiantes.'}</td></tr>
                 )}
               </tbody>
             </table>

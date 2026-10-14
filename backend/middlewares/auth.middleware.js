@@ -31,6 +31,7 @@ function userFromPayload(payload) {
     roleId: payload.roleId ?? null,
     programId: payload.programId ?? null,
     permissions: Array.isArray(payload.permissions) ? payload.permissions : [],
+    mustChangePassword: Boolean(payload.mustChangePassword),
   };
 }
 
@@ -101,6 +102,12 @@ export function requireAuth(req, res, next) {
   }
 
   stampVerifiedIdentity(req);
+  if (req.user.mustChangePassword && !req.path.endsWith('/change-password')) {
+    return res.status(403).json({
+      error: 'Debes cambiar tu contraseña inicial antes de continuar.',
+      code: 'PASSWORD_CHANGE_REQUIRED',
+    });
+  }
   return next();
 }
 

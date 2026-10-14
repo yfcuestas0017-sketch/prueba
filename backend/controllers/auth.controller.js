@@ -2,7 +2,7 @@ import { randomUUID, randomBytes } from 'crypto';
 import pool from '../config/db.js';
 import { withTransaction } from '../db/withTransaction.js';
 import { HttpError, sendError } from '../utils/httpError.js';
-import { hashPassword, verifyPassword } from '../utils/password.js';
+import { hashPassword, isInitialPassword, verifyPassword } from '../utils/password.js';
 import { signSessionToken, SESSION_EXPIRES_IN } from '../utils/token.js';
 import { sendPasswordResetEmail, isEmailConfigured } from '../services/email.service.js';
 
@@ -48,6 +48,8 @@ export const login = async (req, res) => {
     if (!valid) {
       return res.status(401).json({ error: CREDENCIALES_INVALIDAS });
     }
+
+    const mustChangePassword = await isInitialPassword(user.password);
 
     // La contraseña estaba guardada en texto plano (fila anterior a la
     // migración a bcrypt): se rehashea aprovechando que aquí la conocemos.
@@ -126,6 +128,7 @@ export const login = async (req, res) => {
       permissions,
       programId: user.program_id,
       programName: user.program_name || null,
+      mustChangePassword,
     };
 
     res.json({
@@ -486,9 +489,9 @@ export const changePassword = async (req, res) => {
     return res.json({
       success: true,
       message: '¡Contraseña actualizada exitosamente en la base de datos!',
+      token: signSessionToken({ ...req.user, mustChangePassword: false }),
     });
   } catch (err) {
     return sendError(res, err, 'Change password error:', 'Error al cambiar la contraseña en la base de datos.');
   }
 };
-

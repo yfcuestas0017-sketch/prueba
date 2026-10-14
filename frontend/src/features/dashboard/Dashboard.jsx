@@ -27,7 +27,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <AnalyticsDashboard />
+      {!user?.mustChangePassword && <AnalyticsDashboard />}
 
       </DashboardLayout>
   );

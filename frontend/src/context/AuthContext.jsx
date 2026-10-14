@@ -7,6 +7,7 @@ import {
   clearSession,
   EVENTO_SESION_EXPIRADA,
 } from '../lib/session';
+import ForcePasswordChangeModal from '../components/auth/ForcePasswordChangeModal';
 
 const AuthContext = createContext(null);
 
@@ -58,6 +59,7 @@ function normalizeUser(storedUser) {
     programName: storedUser.programName ?? storedUser.program_name ?? null,
     roleId: storedUser.roleId ?? storedUser.role_id ?? null,
     permissions: Array.isArray(storedUser.permissions) ? storedUser.permissions : [],
+    mustChangePassword: storedUser.mustChangePassword === true,
     avatar: storedUser.avatar ?? null,
   };
 }
@@ -135,17 +137,18 @@ export function AuthProvider({ children }) {
   };
 
   const logout = async () => {
+    if (user?.mustChangePassword) return;
     setUser(null);
     clearSession();
   };
 
-  const updateUser = (updates) => {
+  const updateUser = (updates, token = null) => {
     if (!user) return;
     const updatedUser = normalizeUser({ ...user, ...updates });
     if (!updatedUser) return;
 
     setUser(updatedUser);
-    saveSession(updatedUser, null);
+    saveSession(updatedUser, token);
   };
 
   return (
@@ -163,6 +166,11 @@ export function AuthProvider({ children }) {
       }}
     >
       {children}
+      {user?.mustChangePassword && !loading && (
+        <ForcePasswordChangeModal
+          onCompleted={(token) => updateUser({ mustChangePassword: false }, token)}
+        />
+      )}
     </AuthContext.Provider>
   );
 }

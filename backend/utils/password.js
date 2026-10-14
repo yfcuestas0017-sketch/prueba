@@ -67,3 +67,8 @@ export async function verifyPassword(plain, stored) {
   const valid = safeEquals(input.trim(), saved.trim());
   return { valid, needsUpgrade: valid };
 }
+
+export async function isInitialPassword(stored) {
+  const { valid } = await verifyPassword('12345678', stored);
+  return valid;
+}

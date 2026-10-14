@@ -53,6 +53,7 @@ export default function Sidebar() {
   const isSidebarExpanded = mobileSidebarOpen || !sidebarCollapsed;
 
   const handleLogout = async () => {
+    if (user?.mustChangePassword) return;
     closeMobileSidebar();
     await logout();
     navigate('/login');

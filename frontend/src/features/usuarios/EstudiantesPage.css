@@ -153,6 +153,110 @@
   .students-preview-list { grid-template-columns: 1fr; }
 }
 
+@media (max-width: 600px) {
+  .students-page {
+    gap: 13px;
+    padding-top: 2px;
+    padding-bottom: 20px;
+  }
+
+  .students-import-panel {
+    padding: 16px;
+    border-radius: 14px;
+  }
+
+  .students-import-intro { gap: 11px; }
+  .students-import-icon { flex-basis: 36px; width: 36px; height: 36px; }
+  .students-import-intro h2,
+  .students-roster-header h2 { font-size: 1.28rem; }
+  .students-import-intro p,
+  .students-roster-header p { font-size: .82rem; }
+  .students-import-controls { display: grid; grid-template-columns: 1fr; }
+  .students-import-controls > button { width: 100%; justify-content: center; }
+  .students-schema-columns { gap: 7px; }
+  .students-schema-column { padding: 10px; }
+  .students-schema-column code { max-width: 100%; overflow-wrap: anywhere; }
+  .students-preview { padding: 12px; }
+  .students-preview-heading > button { width: 100%; justify-content: center; }
+
+  .students-roster { border-radius: 14px; }
+  .students-roster-header {
+    align-items: center;
+    gap: 10px;
+    padding: 16px;
+  }
+
+  .students-roster-header > div:first-child { min-width: 0; }
+  .students-roster-header p { overflow-wrap: anywhere; }
+  .students-total { flex: 0 0 auto; padding: 8px 10px; }
+  .students-filters { gap: 11px; padding: 13px 16px; }
+  .students-filters select,
+  .students-search > div { min-height: 44px; height: 44px; }
+
+  .students-table-wrap { overflow: visible; padding: 12px; }
+  .students-table,
+  .students-table tbody { display: block; width: 100%; }
+  .students-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+  .students-table tbody tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0 12px;
+    margin-bottom: 10px;
+    padding: 4px 13px;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    background: var(--bg-card);
+  }
+
+  .students-table tbody tr:last-child { margin-bottom: 0; }
+  .students-table td { min-width: 0; padding: 10px 0; border-top: 1px solid var(--border-color); }
+  .students-table tbody tr td:first-child { grid-column: 1 / -1; border-top: 0; }
+  .students-table tbody tr td:nth-child(2),
+  .students-table tbody tr td:last-child { grid-column: 1 / -1; }
+  .students-table td[data-label] {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: .78rem;
+  }
+
+  .students-table td[data-label]::before {
+    flex: 0 0 auto;
+    color: var(--text-muted);
+    content: attr(data-label);
+    font-size: .65rem;
+    font-weight: 800;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+  }
+
+  .students-table td[data-label="Correo"] {
+    display: block;
+    overflow-wrap: anywhere;
+  }
+
+  .students-table td[data-label="Correo"]::before {
+    display: block;
+    margin-bottom: 5px;
+  }
+
+  .students-person { min-width: 0; gap: 9px; }
+  .students-person strong { min-width: 0; overflow-wrap: anywhere; }
+  .students-empty { padding: 20px 8px !important; }
+  .students-table-message-row { display: block !important; }
+}
+
 @media (max-width: 420px) {
+  .students-import-panel { padding: 14px; }
+  .students-import-intro { align-items: flex-start; }
+  .students-roster-header { align-items: flex-start; }
+  .students-roster-header h2 { font-size: 1.16rem; }
+  .students-total { grid-template-columns: auto auto; column-gap: 6px; }
+  .students-total svg { width: 16px; }
+  .students-total strong { font-size: 1.1rem; }
+  .students-total span { font-size: .62rem; }
   .students-schema-columns { grid-template-columns: 1fr; }
+  .students-table-wrap { padding: 9px; }
+  .students-table tbody tr { gap: 0 8px; padding: 3px 10px; }
 }
