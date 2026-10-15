@@ -1,18 +1,4 @@
-/**
- * GENERADOR DE PLANTILLAS DE IMPORTACIÓN (XLSX)
- * UNIVERSIDAD CESMAG
- *
- * Construye libros de Excel con:
- *  - Hoja de datos con título institucional, encabezados en español y
- *    filas preformateadas.
- *  - Validaciones nativas de Excel: listas desplegables (programa, semestre),
- *    formato de correo y correos no repetidos dentro del archivo.
- *  - Hoja "Guía" con pasos, descripción de cada campo y un ejemplo.
- *  - Hoja oculta "Listas" que alimenta los desplegables.
- *
- * No incluye filas de ejemplo en la hoja de datos: así no se importan por
- * error registros ficticios.
- */
+
 import JSZip from 'jszip';
 
 const DATA_START_ROW = 5;      // primera fila de datos (1-indexada)
